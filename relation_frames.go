@@ -3,7 +3,11 @@ package surriti
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"math"
+	"reflect"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -72,11 +76,142 @@ func QualifierHash(qualifiers map[string]any) string {
 	if len(qualifiers) == 0 {
 		return ""
 	}
-	payload, err := json.Marshal(qualifiers)
+	payload, err := pythonCanonicalJSON(qualifiers)
 	if err != nil {
 		return ""
 	}
-	return blake2b64Hex(payload)
+	return blake2b64Hex([]byte(payload))
+}
+
+// pythonCanonicalJSON reproduces json.dumps(v, sort_keys=True,
+// separators=(",", ":"), default=str). Exact cross-language output matters
+// because the bytes are part of persistent slot/fact identity.
+func pythonCanonicalJSON(v any) (string, error) {
+	if v == nil { return "null", nil }
+	switch x := v.(type) {
+	case string:
+		return pythonJSONString(x), nil
+	case bool:
+		if x { return "true", nil }
+		return "false", nil
+	case int:
+		return strconv.FormatInt(int64(x), 10), nil
+	case int8:
+		return strconv.FormatInt(int64(x), 10), nil
+	case int16:
+		return strconv.FormatInt(int64(x), 10), nil
+	case int32:
+		return strconv.FormatInt(int64(x), 10), nil
+	case int64:
+		return strconv.FormatInt(x, 10), nil
+	case uint:
+		return strconv.FormatUint(uint64(x), 10), nil
+	case uint8:
+		return strconv.FormatUint(uint64(x), 10), nil
+	case uint16:
+		return strconv.FormatUint(uint64(x), 10), nil
+	case uint32:
+		return strconv.FormatUint(uint64(x), 10), nil
+	case uint64:
+		return strconv.FormatUint(x, 10), nil
+	case float32:
+		return pythonFloat(float64(x)), nil
+	case float64:
+		return pythonFloat(x), nil
+	case json.Number:
+		if strings.ContainsAny(string(x), ".eE") {
+			f, err := x.Float64()
+			if err != nil { return "", err }
+			return pythonFloat(f), nil
+		}
+		return string(x), nil
+	case map[string]any:
+		keys := make([]string, 0, len(x))
+		for k := range x { keys = append(keys, k) }
+		sort.Strings(keys)
+		parts := make([]string, 0, len(keys))
+		for _, k := range keys {
+			value, err := pythonCanonicalJSON(x[k])
+			if err != nil { return "", err }
+			parts = append(parts, pythonJSONString(k)+":"+value)
+		}
+		return "{" + strings.Join(parts, ",") + "}", nil
+	}
+
+	rv := reflect.ValueOf(v)
+	if !rv.IsValid() { return "null", nil }
+	if rv.Kind() == reflect.Pointer {
+		if rv.IsNil() { return "null", nil }
+		return pythonCanonicalJSON(rv.Elem().Interface())
+	}
+	if rv.Kind() == reflect.Map && rv.Type().Key().Kind() == reflect.String {
+		keys := rv.MapKeys()
+		sort.Slice(keys, func(i, j int) bool { return keys[i].String() < keys[j].String() })
+		parts := make([]string, 0, len(keys))
+		for _, key := range keys {
+			value, err := pythonCanonicalJSON(rv.MapIndex(key).Interface())
+			if err != nil { return "", err }
+			parts = append(parts, pythonJSONString(key.String())+":"+value)
+		}
+		return "{" + strings.Join(parts, ",") + "}", nil
+	}
+	if rv.Kind() == reflect.Slice || rv.Kind() == reflect.Array {
+		parts := make([]string, rv.Len())
+		for i := 0; i < rv.Len(); i++ {
+			value, err := pythonCanonicalJSON(rv.Index(i).Interface())
+			if err != nil { return "", err }
+			parts[i] = value
+		}
+		return "[" + strings.Join(parts, ",") + "]", nil
+	}
+	return pythonJSONString(fmt.Sprint(v)), nil
+}
+
+func pythonFloat(v float64) string {
+	if math.IsNaN(v) { return "NaN" }
+	if math.IsInf(v, 1) { return "Infinity" }
+	if math.IsInf(v, -1) { return "-Infinity" }
+	s := strconv.FormatFloat(v, 'g', -1, 64)
+	if !strings.ContainsAny(s, ".eE") { s += ".0" }
+	return s
+}
+
+func pythonJSONString(s string) string {
+	var b strings.Builder
+	b.WriteByte('"')
+	for _, r := range s {
+		switch r {
+		case '"':
+			b.WriteString(`\"`)
+		case '\\':
+			b.WriteString(`\\`)
+		case '\b':
+			b.WriteString(`\b`)
+		case '\f':
+			b.WriteString(`\f`)
+		case '\n':
+			b.WriteString(`\n`)
+		case '\r':
+			b.WriteString(`\r`)
+		case '\t':
+			b.WriteString(`\t`)
+		default:
+			if r < 0x20 {
+				fmt.Fprintf(&b, `\u%04x`, r)
+			} else if r <= 0x7f {
+				b.WriteRune(r)
+			} else if r <= 0xffff {
+				fmt.Fprintf(&b, `\u%04x`, r)
+			} else {
+				r -= 0x10000
+				hi := 0xd800 + (r >> 10)
+				lo := 0xdc00 + (r & 0x3ff)
+				fmt.Fprintf(&b, `\u%04x\u%04x`, hi, lo)
+			}
+		}
+	}
+	b.WriteByte('"')
+	return b.String()
 }
 
 func MakeSlotKey(groupID, subjectUUID, canonicalName string, qualifiers map[string]any) string {
