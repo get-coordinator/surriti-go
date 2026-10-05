@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"sort"
 	"strings"
+	"sync"
 )
 
 type Directionality string
@@ -110,6 +111,7 @@ var DefaultFrames = []RelationFrame{
 }
 
 type RelationFrameRegistry struct {
+	mu         sync.RWMutex
 	global     map[string]RelationFrame
 	byGroup    map[string]map[string]RelationFrame
 	classifier RelationFrameClassifier
@@ -119,7 +121,7 @@ func NewRelationFrameRegistry(seedDefaults bool, classifier RelationFrameClassif
 	r := &RelationFrameRegistry{global: map[string]RelationFrame{}, byGroup: map[string]map[string]RelationFrame{}, classifier: classifier}
 	if seedDefaults {
 		for _, f := range DefaultFrames {
-			r.registerGlobal(f)
+			r.registerGlobalLocked(cloneRelationFrame(f))
 		}
 	}
 	return r
@@ -135,18 +137,26 @@ func frameAliasKeys(f RelationFrame) []string {
 	return keys
 }
 
-func (r *RelationFrameRegistry) registerGlobal(f RelationFrame) {
+func cloneRelationFrame(f RelationFrame) RelationFrame {
+	f.Aliases = append([]string(nil), f.Aliases...)
+	return f
+}
+
+func (r *RelationFrameRegistry) registerGlobalLocked(f RelationFrame) {
 	for _, k := range frameAliasKeys(f) {
 		if k != "" {
-			r.global[k] = f
+			r.global[k] = cloneRelationFrame(f)
 		}
 	}
 }
 
 func (r *RelationFrameRegistry) Register(f RelationFrame, groupID string) RelationFrame {
+	f = cloneRelationFrame(f)
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if groupID == "" {
-		r.registerGlobal(f)
-		return f
+		r.registerGlobalLocked(f)
+		return cloneRelationFrame(f)
 	}
 	b := r.byGroup[groupID]
 	if b == nil {
@@ -155,10 +165,10 @@ func (r *RelationFrameRegistry) Register(f RelationFrame, groupID string) Relati
 	}
 	for _, k := range frameAliasKeys(f) {
 		if k != "" {
-			b[k] = f
+			b[k] = cloneRelationFrame(f)
 		}
 	}
-	return f
+	return cloneRelationFrame(f)
 }
 
 func (r *RelationFrameRegistry) Get(predicate, groupID string) (RelationFrame, bool) {
@@ -166,15 +176,17 @@ func (r *RelationFrameRegistry) Get(predicate, groupID string) (RelationFrame, b
 	if key == "" {
 		return RelationFrame{}, false
 	}
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if groupID != "" {
 		if b := r.byGroup[groupID]; b != nil {
 			if f, ok := b[key]; ok {
-				return f, true
+				return cloneRelationFrame(f), true
 			}
 		}
 	}
 	f, ok := r.global[key]
-	return f, ok
+	return cloneRelationFrame(f), ok
 }
 
 func (r *RelationFrameRegistry) Resolve(ctx context.Context, req FrameClassificationRequest, groupID string) (RelationFrame, bool) {
@@ -196,13 +208,15 @@ func (r *RelationFrameRegistry) Resolve(ctx context.Context, req FrameClassifica
 }
 
 func (r *RelationFrameRegistry) AllFrames(groupID string) []RelationFrame {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	seen := map[string]RelationFrame{}
 	for _, f := range r.global {
-		seen[f.CanonicalName] = f
+		seen[f.CanonicalName] = cloneRelationFrame(f)
 	}
 	if groupID != "" {
 		for _, f := range r.byGroup[groupID] {
-			seen[f.CanonicalName] = f
+			seen[f.CanonicalName] = cloneRelationFrame(f)
 		}
 	}
 	keys := make([]string, 0, len(seen))
