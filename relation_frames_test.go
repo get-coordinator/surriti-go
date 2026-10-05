@@ -1,6 +1,9 @@
 package surriti
 
-import "testing"
+import (
+	"math"
+	"testing"
+)
 
 func TestQualifierHashPythonCompatibility(t *testing.T) {
 	cases := []struct {
@@ -9,8 +12,15 @@ func TestQualifierHashPythonCompatibility(t *testing.T) {
 	}{
 		{map[string]any{}, ""},
 		{map[string]any{"season": "winter"}, "a4709ad6d8fc42b7"},
-		{map[string]any{"b": float64(2), "a": float64(1)}, "3d0089be7edf6746"},
+		{map[string]any{"b": 2, "a": 1}, "3d0089be7edf6746"},
+		{map[string]any{"b": float64(2), "a": float64(1)}, "26b362b4c76c3011"},
 		{map[string]any{"x": true, "n": 3.5}, "61ae34220082491a"},
+		{map[string]any{"x": 1.0}, "f6933514092e0d6f"},
+		{map[string]any{"x": math.Copysign(0, -1)}, "c9af70b819701295"},
+		{map[string]any{"city": "München"}, "bf90d9950d863fca"},
+		{map[string]any{"emoji": "😀"}, "f12ba041153d6e67"},
+		{map[string]any{"nested": map[string]any{"z": 1.0, "a": []any{"é", true, nil, 2}}}, "829fababc92c8c87"},
+		{map[string]any{"small": 1e-7, "large": 1e20}, "498c2ad78dbb545c"},
 	}
 	for _, tc := range cases {
 		if got := QualifierHash(tc.q); got != tc.want {
