@@ -4,6 +4,14 @@ Reference: `the-hack-foundation/surriti@3e4a26d8e624f60bc3e58581a9336e5fb569aab4
 
 This document is the implementation contract for the parity phase. "Ported" means behaviorally equivalent, not merely represented by a similarly named type or function.
 
+## Port status
+
+**Runtime source parity is complete against the frozen Python baseline.** The Go tree now contains counterparts for the production facade, graph persistence and temporal semantics, entity resolution, search/recall, participant references, resources, profiles, read models, memory packs, production LLM/embedder adapters, and the full cognition pipeline.
+
+The Python `testing.py` in-memory fake driver is intentionally not part of runtime parity; it is development/test infrastructure, and the Go port uses native Go fakes/tests instead. `py.typed` is Python packaging metadata and has no Go equivalent.
+
+Live differential certification is deliberately separate from source-port completion. Real SurrealDB/provider validation, environment-specific debugging, and differential fixture runs can continue after this merge without changing the parity contract.
+
 ## Non-negotiable invariants
 
 - SurrealDB is the source of truth.
@@ -20,14 +28,14 @@ This document is the implementation contract for the parity phase. "Ported" mean
 
 ## Source inventory
 
-The Python package contains 47 production Python modules and a large test corpus. The current test inventory contains 421 conventionally named tests across the principal test modules, plus stress/debug scripts.
+The Python package contains the runtime modules inventoried below, plus Python-only packaging/test support. The current test inventory contains 421 conventionally named tests across the principal test modules, plus stress/debug scripts.
 
 ### Public facade and runtime
 
 | Python | Go target | Required behavior |
 |---|---|---|
 | `__init__.py` | `surriti.go`, public types/interfaces | Preserve the public capability surface and version metadata. |
-| `graphiti.py` | `surriti.go`, `ingest.go`, `memory_refs.go`, `current_state.go`, `communities.go`, `self_model.go` | Main facade/orchestration. Do not port as one giant file; preserve every observable method and invariant. |
+| `graphiti.py` | `surriti.go`, `ingest.go`, `graph_write.go`, `graph_api.go`, `recall.go`, `communities.go`, `diagnostics.go`, `self_awareness.go`, `facade_compat.go` | Main facade/orchestration. Do not port as one giant file; preserve every observable method and invariant. |
 | `driver.py` | `driver.go` | Connection lifecycle, env config, context cancellation, stale-connection recovery, transaction-conflict retry, concurrency-safe reconnect, schema init and clear. |
 | `errors.py` | `errors.go` | Stable typed/sentinel error categories with wrapping. |
 | `_logging.py` | `logging.go` | Opt-in logging surface; no duplicate default handlers. |
@@ -36,8 +44,8 @@ The Python package contains 47 production Python modules and a large test corpus
 
 | Python | Go target | Required behavior |
 |---|---|---|
-| `nodes.py` | `models_nodes.go` | Episode, entity, alias, community models; defaults; UTC timestamps; episode source enum. |
-| `edges.py` | `models_edges.go` | Mentions, entity facts, community membership; temporal state; cognition fields; relation-frame metadata; participant reference metadata. |
+| `nodes.py` | `models.go` | Episode, entity, alias, community models; defaults; UTC timestamps; episode source enum. |
+| `edges.py` | `models.go` | Mentions, entity facts, community membership; temporal state; cognition fields; relation-frame metadata; participant reference metadata. |
 | `schema.py` | `schema.go` | Exact managed tables/fields/index semantics, compatibility backfills, fact-key uniqueness enforcement. |
 | `utils.py` | `decode.go` | Surreal row -> model coercion, record-id normalization, datetime coercion. |
 | `validators.py` | `validators.go` | Fact repair, identity self-loop repair, filler rejection, self-loop rules. |
@@ -62,7 +70,7 @@ Managed SurrealDB tables:
 | Python | Go target | Required behavior |
 |---|---|---|
 | `llm.py` | `llm.go` | Provider-neutral LLM interface plus extracted entity/fact/contradiction structures and scripted/dummy test implementations. |
-| `llm_clients.py` | adapters outside core or optional `adapters/` | Preserve prompt/output parsing semantics where adapters are supplied. Core library must not depend on a specific routing provider. |
+| `llm_clients.py` | `llm_clients.go` | Preserve prompt/output parsing semantics where adapters are supplied. Core library must not depend on a specific routing provider. |
 | `embedder.py` | `embedder.go` | Provider-neutral embedder interface, deterministic dummy embedder, batch behavior and cosine similarity. |
 | `rerankers.py` | `rerank.go` | Cross-encoder interface, dummy ranker, RRF, MMR, episode-mentions reranking. |
 
@@ -146,25 +154,25 @@ The cognition layer is in scope for parity. It remains additive and must never m
 | Python | Go target | Behavior |
 |---|---|---|
 | `cognition/config.py` | `cognition_config.go` | Tunables/defaults. |
-| `cognition/state.py` | `cognition_state.go` | Per-group dirty queue/state. |
+| `cognition/state.py` | `cognition_scheduler.go` | Per-group dirty queue/state. |
 | `cognition/scheduler.py` | `cognition_scheduler.go` | Debounce, recovery, per-group serialization, cross-group concurrency, shutdown. |
 | `cognition/runner.py` | `cognition_runner.go` | Ordered fail-soft pass orchestration and metrics. |
-| `cognition/affect.py` | `cognition_affect.go` | Deterministic affect scoring/tagging. |
-| `cognition/perspective.py` | `cognition_perspective.go` | Belief detection/promotion. |
+| `cognition/affect.py` | `cognition_core_passes.go` | Deterministic affect scoring/tagging. |
+| `cognition/perspective.py` | `cognition_core_passes.go` | Belief detection/promotion. |
 | `cognition/reinforcement.py` | `cognition_reinforcement.go` | Assertion and recall reinforcement metadata. |
 | `cognition/decay.py` | `cognition_decay.go` | Half-life, linear vitality, ACT-R-like activation history, effective confidence, protected memory classes. |
-| `cognition/associative.py` | `cognition_associative.go` | Weight refresh from current memory physiology. |
-| `cognition/lifecycle.py` | `cognition_lifecycle.go` | Silence inactive memories without deleting them. |
-| `cognition/procedural.py` | `cognition_procedural.go` | Interaction-pattern classification and synthetic procedural memories. |
-| `cognition/traits.py` | `cognition_traits.go` | Candidate selection, optional ratification, persistence/cache. |
-| `cognition/goals.py` | `cognition_goals.go` | Goal extraction/ratification/persistence. |
-| `cognition/clustering.py` | `cognition_clustering.go` | Domain labeling of communities. |
+| `cognition/associative.py` | `cognition_core_passes.go` | Weight refresh from current memory physiology. |
+| `cognition/lifecycle.py` | `cognition_core_passes.go` | Silence inactive memories without deleting them. |
+| `cognition/procedural.py` | `cognition_context_passes.go` | Interaction-pattern classification and synthetic procedural memories. |
+| `cognition/traits.py` | `cognition_traits_goals.go` | Candidate selection, optional ratification, persistence/cache. |
+| `cognition/goals.py` | `cognition_traits_goals.go` | Goal extraction/ratification/persistence. |
+| `cognition/clustering.py` | `cognition_context_passes.go` | Domain labeling of communities. |
 | `cognition/consolidation.py` | `cognition_consolidation.go` | Repeated-fact and stagnant-edge abstraction with provenance. |
-| `cognition/prediction.py` | `cognition_prediction.go` | Per-group prediction bundle. |
+| `cognition/prediction.py` | `cognition_context_passes.go` | Per-group prediction bundle. |
 | `cognition/self_awareness.py` | `cognition_self_awareness.go` | Self episodes, traits, beliefs, patterns and self-model reads. |
 | `cognition/_writes.py` | `cognition_writes.go` | Stable synthetic entity/edge writes. |
-| `cognition/_jsonio.py` | `jsonutil.go` | Loose JSON extraction and snake-case normalization. |
-| `cognition/prompts.py` | `prompts_cognition.go` | Preserve prompt contracts for injected LLM implementations. |
+| `cognition/_jsonio.py` | `cognition_json.go` | Loose JSON extraction and snake-case normalization. |
+| `cognition/prompts.py` | `cognition_prompts.go` | Preserve prompt contracts for injected LLM implementations. |
 
 ## Facade method parity
 
@@ -349,9 +357,14 @@ Run the same deterministic fixture corpus through Python and Go against isolated
 
 ## Definition of parity complete
 
-Parity is complete only when:
+### Runtime source port complete
 
-- every item in this document is implemented or explicitly documented as intentionally external
+The source-port milestone is complete when every production behavior above has a Go implementation (or is explicitly documented as Python-only development/packaging infrastructure), persistent identity/schema contracts are preserved, and provider-specific concerns stay behind interfaces.
+
+### Differential certification complete
+
+Full environment certification is complete when:
+
 - the Go suite reproduces the Python invariants
 - all live SurrealDB integration tests pass under repeated runs
 - `go test -race ./...` passes

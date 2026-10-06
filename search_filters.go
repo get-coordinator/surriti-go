@@ -155,29 +155,34 @@ func NodePassesFilters(row map[string]any, f *SearchFilters) bool {
 }
 
 func evalProperty(row map[string]any, pf PropertyFilter) bool {
+	op := pf.Op
+	if op == "" {
+		// Python PropertyFilter defaults to equality.
+		op = OpEQ
+	}
 	actual, ok := row[pf.Name]
 	if !ok || actual == nil {
 		if attrs, aok := row["attributes"].(map[string]any); aok {
 			actual, ok = attrs[pf.Name]
 		}
 	}
-	if pf.Op == OpIsNull {
+	if op == OpIsNull {
 		return !ok || actual == nil
 	}
-	if pf.Op == OpIsNotNull {
+	if op == OpIsNotNull {
 		return ok && actual != nil
 	}
 	if !ok || actual == nil {
 		return false
 	}
-	if pf.Op == OpEQ {
+	if op == OpEQ {
 		return reflect.DeepEqual(actual, pf.Value) || numericEqual(actual, pf.Value)
 	}
-	if pf.Op == OpNE {
+	if op == OpNE {
 		return !(reflect.DeepEqual(actual, pf.Value) || numericEqual(actual, pf.Value))
 	}
 	if a, b, ok := numericPair(actual, pf.Value); ok {
-		switch pf.Op {
+		switch op {
 		case OpGT:
 			return a > b
 		case OpLT:
@@ -190,7 +195,7 @@ func evalProperty(row map[string]any, pf PropertyFilter) bool {
 	}
 	if a, ok := actual.(string); ok {
 		if b, bok := pf.Value.(string); bok {
-			switch pf.Op {
+			switch op {
 			case OpGT:
 				return a > b
 			case OpLT:
@@ -204,7 +209,7 @@ func evalProperty(row map[string]any, pf PropertyFilter) bool {
 	}
 	if a := asTimePtr(actual); a != nil {
 		if b := asTimePtr(pf.Value); b != nil {
-			switch pf.Op {
+			switch op {
 			case OpGT:
 				return a.After(*b)
 			case OpLT:
@@ -216,7 +221,8 @@ func evalProperty(row map[string]any, pf PropertyFilter) bool {
 			}
 		}
 	}
-	return false
+	// Python treats unknown operators as a no-op constraint.
+	return true
 }
 
 func containsString(xs []string, s string) bool {
@@ -229,10 +235,15 @@ func containsString(xs []string, s string) bool {
 }
 
 func asString(v any) string {
+	if v == nil {
+		return ""
+	}
 	if s, ok := v.(string); ok {
 		return s
 	}
-	return ""
+	// SurrealDB record IDs are SDK value types rather than plain strings.
+	// fmt.Sprint/stringFromAny preserves their canonical "table:id" form.
+	return stringFromAny(v)
 }
 
 func asStringSlice(v any) []string {

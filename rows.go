@@ -3,6 +3,8 @@ package surriti
 import (
 	"fmt"
 	"reflect"
+
+	"github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 // UnwrapRows canonicalizes the result shapes Surriti historically accepted:
@@ -116,8 +118,17 @@ func stringFromAny(v any) string {
 	if v == nil {
 		return ""
 	}
-	if s, ok := v.(string); ok {
-		return s
+	switch x := v.(type) {
+	case string:
+		return x
+	case models.RecordID:
+		return (&x).String()
+	case *models.RecordID:
+		if x == nil {
+			return ""
+		}
+		return x.String()
+	default:
+		return fmt.Sprint(v)
 	}
-	return fmt.Sprint(v)
 }

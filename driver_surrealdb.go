@@ -2,8 +2,11 @@ package surriti
 
 import (
 	"context"
+	"reflect"
+	"time"
 
 	surrealdb "github.com/surrealdb/surrealdb.go"
+	"github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
 // OfficialSurrealFactory adapts the pinned official SurrealDB Go SDK to the
@@ -35,7 +38,7 @@ func (c *officialSurrealClient) Use(ctx context.Context, namespace, database str
 }
 
 func (c *officialSurrealClient) Query(ctx context.Context, surql string, variables map[string]any) (any, error) {
-	results, err := surrealdb.Query[any](ctx, c.db, surql, variables)
+	results, err := surrealdb.Query[any](ctx, c.db, surql, normalizeSurrealVariables(variables))
 	if err != nil {
 		return nil, err
 	}
@@ -59,4 +62,54 @@ func NewSurrealDriverFromEnv() (*SurrealDriver, error) {
 		return nil, err
 	}
 	return NewDefaultSurrealDriver(cfg)
+}
+
+
+func normalizeSurrealVariables(variables map[string]any) map[string]any {
+	if variables == nil {
+		return nil
+	}
+	out := make(map[string]any, len(variables))
+	for k, v := range variables {
+		out[k] = normalizeSurrealValue(v)
+	}
+	return out
+}
+
+// Python's SurrealDB client encodes None as SurrealDB NONE. Go's plain nil is
+// CBOR null, which is observably different for option<T> schema fields.
+// Normalize query variables recursively so the Go port preserves Python's wire
+// semantics without weakening schema types.
+func normalizeSurrealValue(v any) any {
+	if v == nil {
+		return models.None
+	}
+	switch v.(type) {
+	case time.Time, models.CustomNil:
+		return v
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Pointer, reflect.Interface:
+		if rv.IsNil() {
+			return models.None
+		}
+		return normalizeSurrealValue(rv.Elem().Interface())
+	case reflect.Slice, reflect.Array:
+		out := make([]any, rv.Len())
+		for i := 0; i < rv.Len(); i++ {
+			out[i] = normalizeSurrealValue(rv.Index(i).Interface())
+		}
+		return out
+	case reflect.Map:
+		if rv.Type().Key().Kind() == reflect.String {
+			out := make(map[string]any, rv.Len())
+			it := rv.MapRange()
+			for it.Next() {
+				out[it.Key().String()] = normalizeSurrealValue(it.Value().Interface())
+			}
+			return out
+		}
+	}
+	return v
 }

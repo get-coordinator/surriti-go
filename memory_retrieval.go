@@ -1,6 +1,7 @@
 package surriti
 
 import (
+	"context"
 	"math"
 	"regexp"
 	"sort"
@@ -89,7 +90,7 @@ func rowVector(v any) []float64 {
 }
 
 func CandidateEvidence(row map[string]any, query string, queryEmbedding []float64) (float64, int) {
-	return CosineSimilarity(rowVector(row["fact_embedding"]), queryEmbedding), LexicalMatchCount(row, CueTokens(query, 16))
+	return MemoryCosineSimilarity(rowVector(row["fact_embedding"]), queryEmbedding), LexicalMatchCount(row, CueTokens(query, 16))
 }
 
 func AdmitCandidates(candidates []map[string]any, query string, queryEmbedding []float64, minCosine float64, minLexicalTokens int) []map[string]any {
@@ -114,9 +115,9 @@ func stripRecordID(v any) string {
 		return ""
 	}
 	if i := strings.IndexByte(s, ':'); i >= 0 && i+1 < len(s) {
-		return s[i+1:]
+		return strings.Trim(s[i+1:], "⟨⟩")
 	}
-	return s
+	return strings.Trim(s, "⟨⟩")
 }
 
 func ApplySpreadingActivation(candidates []map[string]any, fused map[string]float64, weight float64, seedCount int) {
@@ -305,4 +306,161 @@ func EvidenceSnippets(text, query string, k, maxChars int) []string {
 		out[i] = s.text
 	}
 	return out
+}
+
+
+// AttachEpisodeEvidence mirrors Python's fail-soft recall enrichment. It mutates
+// the candidate attribute bags in place and deliberately suppresses storage
+// errors so evidence decoration can never make recall fail.
+func AttachEpisodeEvidence(ctx context.Context, driver Queryer, candidates []map[string]any, query string, groupID *string, sentencesPerEdge, maxEdges int) {
+	if sentencesPerEdge <= 0 {
+		sentencesPerEdge = 2
+	}
+	if maxEdges <= 0 {
+		maxEdges = 6
+	}
+	if strings.TrimSpace(query) == "" {
+		return
+	}
+	if maxEdges > len(candidates) {
+		maxEdges = len(candidates)
+	}
+	selected := make([]map[string]any, 0, maxEdges)
+	episodeIDs := []string{}
+	seen := map[string]struct{}{}
+	for _, row := range candidates[:maxEdges] {
+		eps := asStringSlice(row["episodes"])
+		if len(eps) == 0 {
+			continue
+		}
+		selected = append(selected, row)
+		for _, ep := range eps {
+			if ep == "" {
+				continue
+			}
+			if _, ok := seen[ep]; ok {
+				continue
+			}
+			seen[ep] = struct{}{}
+			episodeIDs = append(episodeIDs, ep)
+		}
+	}
+	if len(episodeIDs) == 0 {
+		return
+	}
+	where := "WHERE uuid IN $uuids"
+	params := map[string]any{"uuids": episodeIDs}
+	if groupID != nil {
+		where += " AND group_id = $group_id"
+		params["group_id"] = *groupID
+	}
+	result, err := driver.Query(ctx, "SELECT uuid, content FROM episode "+where+";", params)
+	if err != nil {
+		return
+	}
+	episodes := map[string]map[string]any{}
+	for _, row := range UnwrapRows(result) {
+		if id := stringFromAny(row["uuid"]); id != "" {
+			episodes[id] = row
+		}
+	}
+	for _, edge := range selected {
+		evidence := []map[string]string{}
+		for _, episodeID := range asStringSlice(edge["episodes"]) {
+			episode := episodes[episodeID]
+			if episode == nil {
+				continue
+			}
+			for _, snippet := range EvidenceSnippets(stringFromAny(episode["content"]), query, sentencesPerEdge, 240) {
+				evidence = append(evidence, map[string]string{"episode_uuid": episodeID, "text": snippet})
+				if len(evidence) >= sentencesPerEdge {
+					break
+				}
+			}
+			if len(evidence) >= sentencesPerEdge {
+				break
+			}
+		}
+		if len(evidence) == 0 {
+			continue
+		}
+		attrs := mapFromAny(edge["attributes"])
+		if attrs == nil {
+			attrs = map[string]any{}
+		} else {
+			attrs = cloneMap(attrs)
+		}
+		attrs["recall_evidence"] = evidence
+		edge["attributes"] = attrs
+	}
+}
+
+// ResurrectSilentMemory performs the Python strong-cue fallback. Storage and
+// update failures intentionally collapse to nil: resurrection is opportunistic
+// and must not make the base recall path fragile.
+func ResurrectSilentMemory(
+	ctx context.Context,
+	driver Queryer,
+	queryEmbedding []float64,
+	groupID *string,
+	minCosine float64,
+	filters *SearchFilters,
+	egoFilter []string,
+) map[string]any {
+	if queryEmbedding == nil {
+		return nil
+	}
+	if minCosine == 0 {
+		minCosine = 0.45
+	}
+	where := `WHERE status = "silent" AND fact_embedding IS NOT NONE`
+	params := map[string]any{"vec": queryEmbedding}
+	if groupID != nil {
+		where += " AND group_id = $group_id"
+		params["group_id"] = *groupID
+	}
+	result, err := driver.Query(ctx,
+		"SELECT * FROM relates_to\n"+where+"\n    AND fact_embedding <|4,40|> $vec\nLIMIT 4;",
+		params,
+	)
+	if err != nil {
+		return nil
+	}
+	ego := map[string]struct{}{}
+	for _, id := range egoFilter {
+		ego[id] = struct{}{}
+	}
+	for _, row := range UnwrapRows(result) {
+		if !EdgePassesFilters(row, filters) {
+			continue
+		}
+		if len(ego) > 0 {
+			src := stripRecordID(row["in"])
+			dst := stripRecordID(row["out"])
+			_, srcOK := ego[src]
+			_, dstOK := ego[dst]
+			if !srcOK && !dstOK {
+				continue
+			}
+		}
+		cos := MemoryCosineSimilarity(rowVector(row["fact_embedding"]), queryEmbedding)
+		if cos < minCosine {
+			continue
+		}
+		uid := stringFromAny(row["uuid"])
+		if uid == "" {
+			continue
+		}
+		if _, err := driver.Query(ctx,
+			`UPDATE relates_to SET status = "active" WHERE uuid = $uuid;`,
+			map[string]any{"uuid": uid},
+		); err != nil {
+			return nil
+		}
+		row["status"] = "active"
+		row["_memory_cosine"] = cos
+		row["_memory_resurrected"] = true
+		return row
+	}
+	return nil
 }
