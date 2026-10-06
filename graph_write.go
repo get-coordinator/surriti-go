@@ -496,7 +496,7 @@ func (s *Surriti) addFactEdge(ctx context.Context,fact ExtractedFact,subject,obj
 	edge.UUID=edgeUUID;edge.Fact=factText;edge.FactEmbedding=embedding
 	if episode!=nil{edge.Episodes=[]string{episode.UUID}}
 	edge.ValidAt=&validAt;edge.InvalidAt=invalidAt;edge.Status=edgeStatus;edge.SourceType=sourceType
-	edge.Confidence=fact.Confidence;if edge.Confidence==0{edge.Confidence=1}
+	edge.Confidence=fact.Confidence
 	edge.Temporal=fact.Temporal||(hasFrame&&frame.TemporalKind==TemporalState)
 	edge.Singleton=isSingleton;edge.Domain=fact.Domain;edge.Supersedes=uniqueEdgeUUIDs(singletonClosed,replacesClosed)
 	edge.FactKey=MakeFactKey(groupID,subjUUID,edgeName,objUUID,qhash)
