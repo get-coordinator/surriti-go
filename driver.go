@@ -2,11 +2,8 @@ package surriti
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"math/rand"
-	"net"
 	"os"
 	"strconv"
 	"strings"
@@ -298,9 +295,9 @@ func cleanupClose(client DBClient) {
 	_ = client.Close(ctx)
 }
 
-// Close is idempotent. The current pointer is cleared before invoking the
-// potentially slow transport close so new callers never observe a connection
-// that is in the process of being torn down.
+// Close is idempotent. Like the Python reference implementation, transport
+// close failures are best-effort cleanup and do not escape to callers. The
+// current pointer is cleared before invoking the potentially slow close.
 func (d *SurrealDriver) Close(ctx context.Context) error {
 	if err := d.connectMu.Lock(ctx); err != nil {
 		return err
@@ -314,9 +311,7 @@ func (d *SurrealDriver) Close(ctx context.Context) error {
 	if h == nil {
 		return nil
 	}
-	if err := h.client.Close(ctx); err != nil {
-		return fmt.Errorf("%w: close SurrealDB connection: %v", ErrConnection, err)
-	}
+	_ = h.client.Close(ctx)
 	return nil
 }
 
@@ -337,15 +332,8 @@ func isStaleConnection(err error) bool {
 	if err == nil {
 		return false
 	}
-	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
-		return true
-	}
-	var ne net.Error
-	if errors.As(err, &ne) && !ne.Timeout() {
-		// Network failures are considered stale unless they are request-local
-		// timeouts. Query/context timeouts must not churn a healthy connection.
-		return true
-	}
+	// Keep classification byte-for-byte compatible with the Python policy.
+	// Broader transport heuristics can be added after parity certification.
 	msg := strings.ToLower(err.Error())
 	for _, token := range staleConnectionTokens {
 		if strings.Contains(msg, token) {
@@ -388,21 +376,7 @@ func (d *SurrealDriver) Query(ctx context.Context, surql string, variables map[s
 
 		h := d.snapshot()
 		if h == nil {
-			if err := d.Connect(ctx); err != nil {
-				lastConnectionErr = err
-				if attempt == d.cfg.MaxQueryAttempts-1 {
-					return nil, err
-				}
-				if err := d.sleep(ctx, d.retryDelay(attempt)); err != nil {
-					return nil, err
-				}
-				continue
-			}
-			h = d.snapshot()
-			if h == nil {
-				lastConnectionErr = fmt.Errorf("%w: connect completed without a current client", ErrConnection)
-				continue
-			}
+			return nil, fmt.Errorf("%w: SurrealDriver is not connected; call Connect before Query", ErrConnection)
 		}
 
 		result, err := h.client.Query(ctx, surql, variables)
