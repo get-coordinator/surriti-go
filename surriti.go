@@ -422,3 +422,21 @@ func sortedStringsUnique(values []string) []string {
 	sort.Strings(out)
 	return out
 }
+
+
+func (s *Surriti) ExportMemoryPack(ctx context.Context, groupID, outputPath string, includeEmbeddings string, pageSize int) (ExportResult, error) {
+	if includeEmbeddings == "" {
+		includeEmbeddings = "never"
+	}
+	if pageSize == 0 {
+		pageSize = 1000
+	}
+	return ExportGroupToZip(ctx, s.Driver, groupID, outputPath, includeEmbeddings, pageSize, nil)
+}
+
+func (s *Surriti) ImportMemoryPack(ctx context.Context, inputPath, targetGroupID, mode string) (ImportResult, error) {
+	if mode == "" {
+		mode = "merge"
+	}
+	return ImportGroupFromZip(ctx, s.Driver, inputPath, targetGroupID, mode)
+}
