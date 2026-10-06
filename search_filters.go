@@ -235,10 +235,15 @@ func containsString(xs []string, s string) bool {
 }
 
 func asString(v any) string {
+	if v == nil {
+		return ""
+	}
 	if s, ok := v.(string); ok {
 		return s
 	}
-	return ""
+	// SurrealDB record IDs are SDK value types rather than plain strings.
+	// fmt.Sprint/stringFromAny preserves their canonical "table:id" form.
+	return stringFromAny(v)
 }
 
 func asStringSlice(v any) []string {
