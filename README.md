@@ -220,7 +220,7 @@ type Embedder interface {
 }
 
 type CrossEncoder interface {
-	Rank(context.Context, string, []string) ([]int, error)
+	Rank(context.Context, string, []string) ([]RankedPassage, error)
 }
 ~~~
 
