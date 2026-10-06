@@ -115,9 +115,9 @@ func stripRecordID(v any) string {
 		return ""
 	}
 	if i := strings.IndexByte(s, ':'); i >= 0 && i+1 < len(s) {
-		return s[i+1:]
+		return strings.Trim(s[i+1:], "⟨⟩")
 	}
-	return s
+	return strings.Trim(s, "⟨⟩")
 }
 
 func ApplySpreadingActivation(candidates []map[string]any, fused map[string]float64, weight float64, seedCount int) {
