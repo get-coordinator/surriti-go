@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -87,6 +88,12 @@ type Surriti struct {
 	ProfileRefreshMode string
 	ProfileSummaryMaxFacts int
 	CognitionConfig CognitionConfig
+
+	bgCtx context.Context
+	bgCancel context.CancelFunc
+	bgMu sync.Mutex
+	bgWG sync.WaitGroup
+	closed bool
 }
 
 type llmFrameClassifier struct{ llm LLMClient }
@@ -147,6 +154,7 @@ func NewSurriti(driver Queryer, options *SurritiOptions) (*Surriti, error) {
 	if opts.Cognition != nil {
 		cognition = *opts.Cognition
 	}
+	bgCtx, bgCancel := context.WithCancel(context.Background())
 	frames := opts.RelationFrames
 	if frames == nil {
 		frames = NewRelationFrameRegistry(seedDefaults, llmFrameClassifier{llm: opts.LLM})
@@ -164,6 +172,8 @@ func NewSurriti(driver Queryer, options *SurritiOptions) (*Surriti, error) {
 		ProfileRefreshMode: profileMode,
 		ProfileSummaryMaxFacts: maxFacts,
 		CognitionConfig: cognition,
+		bgCtx: bgCtx,
+		bgCancel: bgCancel,
 	}, nil
 }
 
@@ -186,10 +196,46 @@ func (s *Surriti) Connect(ctx context.Context) (*Surriti, error) {
 }
 
 func (s *Surriti) Close(ctx context.Context) error {
+	s.bgMu.Lock()
+	if !s.closed {
+		s.closed = true
+	}
+	s.bgMu.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		s.bgWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		s.bgCancel()
+		select {
+		case <-done:
+		case <-ctx.Done():
+		}
+	}
+	s.bgCancel()
 	if c, ok := s.Driver.(interface{ Close(context.Context) error }); ok {
 		return c.Close(ctx)
 	}
 	return nil
+}
+
+func (s *Surriti) runBackground(fn func(context.Context)) {
+	s.bgMu.Lock()
+	if s.closed {
+		s.bgMu.Unlock()
+		return
+	}
+	s.bgWG.Add(1)
+	ctx := s.bgCtx
+	s.bgMu.Unlock()
+	go func() {
+		defer s.bgWG.Done()
+		fn(ctx)
+	}()
 }
 
 func (s *Surriti) BuildIndicesAndConstraints(ctx context.Context) error {
