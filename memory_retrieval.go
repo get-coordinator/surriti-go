@@ -89,7 +89,7 @@ func rowVector(v any) []float64 {
 }
 
 func CandidateEvidence(row map[string]any, query string, queryEmbedding []float64) (float64, int) {
-	return CosineSimilarity(rowVector(row["fact_embedding"]), queryEmbedding), LexicalMatchCount(row, CueTokens(query, 16))
+	return MemoryCosineSimilarity(rowVector(row["fact_embedding"]), queryEmbedding), LexicalMatchCount(row, CueTokens(query, 16))
 }
 
 func AdmitCandidates(candidates []map[string]any, query string, queryEmbedding []float64, minCosine float64, minLexicalTokens int) []map[string]any {
