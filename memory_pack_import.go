@@ -2,6 +2,7 @@ package surriti
 
 import (
 	"archive/zip"
+	"bufio"
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
@@ -14,25 +15,33 @@ import (
 )
 
 func readJSONL(path string)([]map[string]any,error){
-	f,err:=os.Open(path);if err!=nil{if os.IsNotExist(err){return []map[string]any{},nil};return nil,err};defer f.Close()
-	dec:=json.NewDecoder(f);rows:=[]map[string]any{};line:=0
-	for dec.More(){line++;var row map[string]any;if err:=dec.Decode(&row);err!=nil{return nil,fmt.Errorf("Invalid JSON in %s line %d: %w",filepath.Base(path),line,err)};rows=append(rows,row)}
-	if err:=dec.Decode(new(any));err!=nil&&err.Error()!="EOF"{
-		// Decoder.More() is only meaningful inside arrays; fall back below.
+	f,err:=os.Open(path)
+	if err!=nil{
+		if os.IsNotExist(err){return []map[string]any{},nil}
+		return nil,err
 	}
-	// JSONL is not an array: if the optimistic decoder returned no rows, scan
-	// line-by-line using Unmarshal to preserve Python's line-number errors.
-	if len(rows)==0{
-		b,err:=os.ReadFile(path);if err!=nil{return nil,err}
-		for i,lineBytes:=range strings.Split(string(b),"\n"){
-			if strings.TrimSpace(lineBytes)==""{continue};var row map[string]any
-			if err:=json.Unmarshal([]byte(lineBytes),&row);err!=nil{return nil,fmt.Errorf("Invalid JSON in %s line %d: %w",filepath.Base(path),i+1,err)}
-			rows=append(rows,row)
+	defer f.Close()
+
+	rows:=[]map[string]any{}
+	scanner:=bufio.NewScanner(f)
+	// Memory-pack rows can contain summaries/attributes substantially larger
+	// than Scanner's 64 KiB default. Bound a single row generously while still
+	// preventing unbounded allocation on malformed input.
+	scanner.Buffer(make([]byte,64*1024),16*1024*1024)
+	lineNo:=0
+	for scanner.Scan(){
+		lineNo++
+		line:=strings.TrimSpace(scanner.Text())
+		if line==""{continue}
+		var row map[string]any
+		if err:=json.Unmarshal([]byte(line),&row);err!=nil{
+			return nil,fmt.Errorf("Invalid JSON in %s line %d: %w",filepath.Base(path),lineNo,err)
 		}
+		rows=append(rows,row)
 	}
+	if err:=scanner.Err();err!=nil{return nil,err}
 	return rows,nil
 }
-
 func restorePackDatetimes(row map[string]any) map[string]any {
 	for k,v:=range row{
 		s,ok:=v.(string);if !ok{continue}
