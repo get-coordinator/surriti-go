@@ -94,6 +94,7 @@ type Surriti struct {
 	bgMu sync.Mutex
 	bgWG sync.WaitGroup
 	closed bool
+	cognitionScheduler *CognitionScheduler
 }
 
 type llmFrameClassifier struct{ llm LLMClient }
@@ -192,6 +193,23 @@ func (s *Surriti) Connect(ctx context.Context) (*Surriti, error) {
 	if schema, ok := s.Driver.(interface{ InitSchema(context.Context) error }); ok {
 		if err := schema.InitSchema(ctx); err != nil { return nil, err }
 	}
+
+	s.bgMu.Lock()
+	if s.closed {
+		s.bgCtx, s.bgCancel = context.WithCancel(context.Background())
+		s.closed = false
+	}
+	if s.cognitionScheduler == nil {
+		s.cognitionScheduler = NewCognitionScheduler(s.Driver, s.LLM, s.Embedder, s.CognitionConfig)
+	}
+	scheduler := s.cognitionScheduler
+	s.bgMu.Unlock()
+
+	scheduler.Start()
+	if _, err := scheduler.RecoverPendingEpisodes(ctx); err != nil {
+		// Cognition recovery is additive. A recovery query failure must not turn
+		// an otherwise healthy Surriti connection into an application outage.
+	}
 	return s, nil
 }
 
@@ -200,7 +218,16 @@ func (s *Surriti) Close(ctx context.Context) error {
 	if !s.closed {
 		s.closed = true
 	}
+	scheduler := s.cognitionScheduler
+	s.cognitionScheduler = nil
 	s.bgMu.Unlock()
+
+	// Stop cognition before profile jobs and before the shared DB transport.
+	// This preserves Python's shutdown ordering and avoids cancelling a
+	// SurrealDB request while another goroutine is still consuming replies.
+	if scheduler != nil {
+		scheduler.Shutdown(ctx)
+	}
 
 	done := make(chan struct{})
 	go func() {
@@ -439,4 +466,11 @@ func (s *Surriti) ImportMemoryPack(ctx context.Context, inputPath, targetGroupID
 		mode = "merge"
 	}
 	return ImportGroupFromZip(ctx, s.Driver, inputPath, targetGroupID, mode)
+}
+
+
+func (s *Surriti) CognitionScheduler() *CognitionScheduler {
+	s.bgMu.Lock()
+	defer s.bgMu.Unlock()
+	return s.cognitionScheduler
 }
