@@ -278,6 +278,13 @@ func cloneRelationFrame(f RelationFrame) RelationFrame {
 }
 
 func (r *RelationFrameRegistry) registerGlobalLocked(f RelationFrame) {
+	if f.UUID == "" {
+		f.UUID = newUUID()
+	}
+	if f.CreatedAt.IsZero() {
+		f.CreatedAt = utcNow()
+	}
+	f.GroupID = ""
 	for _, k := range frameAliasKeys(f) {
 		if k != "" {
 			r.global[k] = cloneRelationFrame(f)
@@ -287,6 +294,13 @@ func (r *RelationFrameRegistry) registerGlobalLocked(f RelationFrame) {
 
 func (r *RelationFrameRegistry) Register(f RelationFrame, groupID string) RelationFrame {
 	f = cloneRelationFrame(f)
+	if f.UUID == "" {
+		f.UUID = newUUID()
+	}
+	if f.CreatedAt.IsZero() {
+		f.CreatedAt = utcNow()
+	}
+	f.GroupID = groupID
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if groupID == "" {
