@@ -1,0 +1,40 @@
+# Environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Go build/test output
+bin/
+dist/
+out/
+*.test
+*.prof
+*.pprof
+coverage.out
+coverage.*
+*.coverprofile
+
+# Temporary/runtime files
+tmp/
+.tmp/
+*.tmp
+*.log
+*.pid
+*.surriti-pack.zip
+
+# Local databases / scratch data
+*.db
+*.sqlite
+*.sqlite3
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

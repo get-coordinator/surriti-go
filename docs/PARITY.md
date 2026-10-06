@@ -1,6 +1,6 @@
 # Surriti Python -> Go parity map
 
-Original reference: `the-hack-foundation/surriti@3e4a26d8e624f60bc3e58581a9336e5fb569aab4`. The 2026-10-06 acceptance audit also fixes confirmed defects in the working Python reference, as explicitly requested by the user.
+Original reference implementation: Python Surriti at commit `3e4a26d8e624f60bc3e58581a9336e5fb569aab4`. The 2026-10-06 acceptance audit also incorporated confirmed correctness fixes discovered during differential validation.
 
 This document is the implementation contract for the parity phase. "Ported" means behaviorally equivalent, not merely represented by a similarly named type or function.
 
@@ -31,7 +31,7 @@ Python's `testing.py`, `py.typed`, packaging, and Python-only development script
 - Frozen Python golden fixtures for schema DDL, extraction/classification/contradiction prompts, and qualifier hashes. All four cognition prompt constants were also compared byte-for-byte against Python.
 - Targeted lifecycle/reconnect, scheduler shutdown/retry, parser, archive safety, ordering, read-model shape, and HTTP retry/cancellation tests.
 
-No application/production database was modified for validation. The external sibling harness now exercises real OpenRouter extraction and 768-dimensional embeddings, differential public API scenarios, multi-client writes, and actual disk-backed server restarts. See `../../surriti-smoke/VALIDATION.md` for current evidence. Production-volume and extended outage/soak behavior still require workload-specific validation.
+No application or production database was modified for validation. External acceptance testing additionally covered real provider extraction and 768-dimensional embeddings, differential public API scenarios, multi-client writes, and disk-backed server restarts. Production-volume and extended outage/soak behavior remain workload-specific deployment validation.
 
 ## Preserved baseline behavior and safety boundaries
 
@@ -72,7 +72,7 @@ Registry registration remains synchronous: a frame configured after connection i
 
 ## Source inventory
 
-The Python package contains the runtime modules inventoried below, plus Python-only packaging/test support. Native tests and the external acceptance harness both contribute evidence; current executed counts are recorded in the harness validation report.
+The Python package contains the runtime modules inventoried below, plus Python-only packaging/test support. Native tests and external acceptance testing both contribute evidence.
 
 ### Public facade and runtime
 

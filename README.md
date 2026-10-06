@@ -1,155 +1,331 @@
-# surriti-go
+# Surriti Go
 
-A Go library for temporal knowledge graphs and participant-scoped memory backed by SurrealDB 3.x. Includes episode/triplet ingestion, search and recall, historical reads, cognition, resources, communities, and portable memory packs.
+Surriti is a Go library for durable, temporal graph memory backed by SurrealDB 3.x.
+
+It provides episode and fact ingestion, entity resolution, temporal truth, participant-scoped memory, hybrid search and recall, cognition, communities, resources, diagnostics, and portable memory packs behind a single Go package.
+
+## Highlights
+
+- SurrealDB 3.x as the source of truth
+- Temporal facts with correction, supersession, history, and as-of reads
+- Entity and alias resolution
+- Participant-scoped memory visibility and sharing
+- Vector + full-text + hybrid search and recall
+- Optional cognition, reinforcement, decay, consolidation, traits, goals, and self-awareness
+- Provider-neutral LLM, embedding, and reranking interfaces
+- Built-in OpenAI-compatible, OpenAI embedding, and Anthropic adapters
+- Portable memory-pack import/export
+- Context-aware lifecycle, retry, reconnect, and graceful shutdown behavior
+
+Surriti is a library, not a service. Applications import it directly and own its lifecycle.
+
+## Requirements
+
+- Go 1.23 or newer
+- SurrealDB 3.x
+- An embedding model whose output dimension matches the configured SurrealDB vector dimension
+- An LLM only when using natural-language extraction, contradiction analysis, relation classification, cognition, or other model-backed behavior
 
 ## Install
 
-Requires Go 1.23 or newer and a running SurrealDB 3.x instance.
-
-```sh
+~~~bash
 go get github.com/get-coordinator/surriti-go
-```
+~~~
 
-The import path is `github.com/get-coordinator/surriti-go`; the package name is `surriti`.
+Import the package as:
 
-## Use from your application
+~~~go
+import surriti "github.com/get-coordinator/surriti-go"
+~~~
 
-```go
+For production applications, pin a release tag or a specific commit rather than implicitly tracking main.
+
+## Start SurrealDB locally
+
+A minimal local SurrealDB 3.x instance:
+
+~~~bash
+docker run --rm --name surriti-surreal \
+  -p 8000:8000 \
+  surrealdb/surrealdb:v3.0.5 \
+  start --user root --pass root memory
+~~~
+
+The default Surriti endpoint is ws://localhost:8000/rpc.
+
+## Quick start
+
+This example uses direct triplet ingestion, so it does not require an external LLM.
+
+~~~go
 package main
 
 import (
-    "context"
-    "log"
-    "time"
+	"context"
+	"log"
+	"time"
 
-    surriti "github.com/get-coordinator/surriti-go"
+	surriti "github.com/get-coordinator/surriti-go"
 )
 
 func main() {
-    // Reads SURRITI_SURREAL_URL, SURRITI_SURREAL_NS, SURRITI_SURREAL_DB,
-    // SURRITI_SURREAL_USER, and SURRITI_SURREAL_PASS.
-    memory, err := surriti.NewSurritiFromEnv(nil)
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer func() {
-        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-        defer cancel()
-        if err := memory.Close(ctx); err != nil {
-            log.Print(err)
-        }
-    }()
+	cfg := surriti.DefaultDriverConfig()
+	cfg.Username = "root"
+	cfg.Password = "root"
 
-    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-    defer cancel()
-    if _, err := memory.Connect(ctx); err != nil {
-        log.Print(err)
-        return
-    }
-    result, err := memory.AddTriplet(ctx, surriti.AddTripletRequest{
-        SubjectName: "Alice", Predicate: "lives_in",
-        ObjectName: "Philadelphia", GroupID: "my-app",
-    })
-    if err != nil {
-        log.Print(err)
-        return
-    }
-    log.Printf("stored %d facts", len(result.Edges))
+	driver, err := surriti.NewDefaultSurrealDriver(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	memory, err := surriti.NewSurriti(driver, nil)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if _, err := memory.Connect(ctx); err != nil {
+		log.Fatal(err)
+	}
+
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = memory.Close(closeCtx)
+	}()
+
+	result, err := memory.AddTriplet(ctx, surriti.AddTripletRequest{
+		SubjectName: "Alice",
+		Predicate:   "lives_in",
+		ObjectName:  "Philadelphia",
+		GroupID:     "example",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("stored %d fact(s)", len(result.Edges))
 }
-```
+~~~
 
-Nil options use deterministic dummy LLM and embedding implementations. For semantic extraction, inject your providers through `SurritiOptions{LLM: llm, Embedder: embedder}`. Built-in adapters are available through `NewOpenAILLMClient`, `NewAnthropicLLMClient`, and `NewOpenAIEmbedder`; custom implementations satisfy the same small interfaces. Configure the driver and embedder with matching dimensions (driver default: 768; OpenAI embedder default: 1536).
+## Environment configuration
 
-For explicit configuration, start with `DefaultDriverConfig()`, construct a driver with `NewDefaultSurrealDriver(cfg)`, then call `NewSurriti(driver, options)`. Construction does not connect. `Connect` initializes the schema and starts background work; `Close` drains that work and closes the driver. Injected providers remain application-owned. Configure instances before using them concurrently, and honor cancellation in custom providers.
+Surriti can construct its SurrealDB driver from environment variables:
 
-Use a consistent `GroupID` to isolate application memory. Inspect error categories with `errors.Is(err, surriti.ErrConnection)` and the other exported sentinels. Logging is silent by default; call `SetupLogging` to opt in.
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| SURRITI_SURREAL_URL | ws://localhost:8000/rpc | SurrealDB RPC endpoint |
+| SURRITI_SURREAL_NS | surriti | Namespace |
+| SURRITI_SURREAL_DB | surriti | Database |
+| SURRITI_SURREAL_USER | empty | Username |
+| SURRITI_SURREAL_PASS | empty | Password |
+| SURRITI_EMBEDDING_DIM | 768 | Vector dimension |
 
-See [compiled examples](example_test.go) and `go doc github.com/get-coordinator/surriti-go` for the public API.
+Then construct with:
 
-## Port contract
+~~~go
+memory, err := surriti.NewSurritiFromEnv(nil)
+~~~
 
-The library preserves the behavior of [the-hack-foundation/surriti](https://github.com/the-hack-foundation/surriti), while organizing implementation details for Go consumers.
+The repository includes a .env.example with safe placeholders for local development.
 
-Reference implementation:
+## Natural-language ingestion
 
-- Repository: `the-hack-foundation/surriti`
-- Branch: `main`
-- Baseline commit: `3e4a26d8e624f60bc3e58581a9336e5fb569aab4`
-- Python package version: `0.5.0` plus all behavior present on the baseline commit
-- Persistence: SurrealDB 3.x
-- Go module: `github.com/get-coordinator/surriti-go`
+To extract structured graph memory from text, inject an LLM and an embedder.
 
-The Python and Go implementations must remain schema-compatible and must be able to operate against the same SurrealDB data. Existing data is not disposable migration input.
+Surriti includes an OpenAI-compatible adapter. That means OpenAI-compatible providers can be used by supplying their base URL without adding provider-specific behavior to Surriti itself.
 
-## Implementation and validation
+Example using OpenRouter for both chat and embeddings:
 
-Every production Python module has a Go home; the capability map and compatibility contract are in [docs/PARITY.md](docs/PARITY.md). The implementation keeps the Python SurrealDB schema and temporal history model. There is no alternate persistence layer.
+~~~go
+apiKey := os.Getenv("OPENROUTER_API_KEY")
+baseURL := "https://openrouter.ai/api/v1"
 
-The suite includes live SurrealDB 3.0.5 tests and a Python/Go interoperability workflow covering shared entity identity, timestamp precision, temporal replacement, historical reads, and memory packs in both directions. Real hosted LLM/embedding quality, deployment load, and prolonged network outages still require environment-specific validation.
+llm, err := surriti.NewOpenAILLMClient(
+	"openai/gpt-4.1-mini",
+	apiKey,
+	baseURL,
+)
+if err != nil {
+	log.Fatal(err)
+}
 
-## Architecture
+embedder, err := surriti.NewOpenAIEmbedder(
+	"openai/text-embedding-3-small",
+	768,
+	apiKey,
+	baseURL,
+)
+if err != nil {
+	log.Fatal(err)
+}
 
-The public API lives in the root `surriti` package, so applications use one import. Internal packages isolate transport implementation details without exposing additional APIs or introducing dependencies back into the graph layer:
+cfg := surriti.DefaultDriverConfig()
+cfg.EmbeddingDim = 768
 
-- `surriti.go`, `options.go`: construction and lifecycle ownership.
-- `ingest.go`, `graph_*.go`, `participant_memory.go`: writes, temporal reads, and participant authorization.
-- `driver.go`, `schema.go`: connection/retry policy, schema and backfills.
-- `internal/surrealtransport`: official SurrealDB SDK adapter and wire normalization.
-- `internal/providerhttp`: shared provider HTTP retry, cancellation, and bounded response policy.
-- `llm.go`, `embedder.go`, `rerank.go`: injectable capabilities and deterministic implementations.
-- `provider_openai.go`, `provider_anthropic.go`, `provider_openai_embedding.go`: vendor protocols and configuration.
-- `llm_clients.go`, `llm_parse.go`, `llm_prompts.go`: shared model operations, parsing and prompt contracts.
-- `search*.go`, `recall.go`, `memory_retrieval.go`: retrieval and relevance admission.
-- `cognition_*.go`: scheduler and ordered cognition passes.
-- `profiles.go`, `resources.go`, `communities.go`, `read_models.go`, `diagnostics.go`, `memory_pack*.go`: supporting capabilities and their facade methods.
+driver, err := surriti.NewDefaultSurrealDriver(cfg)
+if err != nil {
+	log.Fatal(err)
+}
 
-Graph and cognition code share the same models and lifecycle; they remain together rather than requiring public forwarding layers. Existing exported names, signatures, and compatibility aliases remain available.
-Use constructors for models and `DefaultSearchConfig()` / `DefaultCognitionConfig()` when customizing settings: Go zero values do not encode Python keyword defaults. Basic `Search` returns fact results; use `SearchAdvanced` for combined node, episode and community retrieval. `SearchCompat` retains Graphiti argument mapping.
+memory, err := surriti.NewSurriti(driver, &surriti.SurritiOptions{
+	LLM:      llm,
+	Embedder: embedder,
+})
+if err != nil {
+	log.Fatal(err)
+}
+~~~
 
-## Checks
+Then ingest a natural-language episode:
 
-```sh
+~~~go
+speakerID := "user-123"
+speakerName := "Alice"
+
+result, err := memory.AddEpisode(ctx, surriti.AddEpisodeRequest{
+	Name:              "conversation-turn-1",
+	EpisodeBody:       "I moved to Seattle last year and now work at Acme.",
+	GroupID:           "user-123",
+	Source:            surriti.EpisodeMessage,
+	SourceDescription: "chat",
+	SpeakerID:         &speakerID,
+	SpeakerName:       &speakerName,
+})
+~~~
+
+## Embedding compatibility
+
+Embedding dimension and embedding model identity are persistent data concerns.
+
+The configured driver dimension must match the embedder output dimension. More importantly, do not mix vectors from different embedding models in the same existing graph merely because they have the same dimension. A 768-dimensional vector from one model is not semantically compatible with a 768-dimensional vector from another model.
+
+Changing embedding models for an existing database generally requires re-embedding stored vectors.
+
+## Provider interfaces
+
+Applications may provide their own implementations:
+
+~~~go
+type LLMClient interface {
+	Extract(context.Context, ExtractionRequest) (ExtractionResult, error)
+	FindContradictions(context.Context, ContradictionRequest) ([]int, error)
+}
+
+type Embedder interface {
+	EmbeddingDim() int
+	Create(context.Context, string) ([]float64, error)
+}
+
+type CrossEncoder interface {
+	Rank(context.Context, string, []string) ([]int, error)
+}
+~~~
+
+See the exported interfaces in the package for the exact current contracts.
+
+Built-in adapters include:
+
+- NewOpenAILLMClient
+- NewAnthropicLLMClient
+- NewOpenAIEmbedder
+
+Custom base URLs stay at the adapter boundary. Core graph and memory behavior has no dependency on OpenRouter, OpenAI, Anthropic, or any application-specific service.
+
+## Lifecycle
+
+Construction does not open a database connection.
+
+Call Connect once during application startup:
+
+~~~go
+if _, err := memory.Connect(ctx); err != nil {
+	return err
+}
+~~~
+
+Call Close during shutdown:
+
+~~~go
+closeCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+defer cancel()
+
+if err := memory.Close(closeCtx); err != nil {
+	log.Print(err)
+}
+~~~
+
+Connect initializes the managed schema and starts configured background cognition. Close drains background work before closing the shared database transport.
+
+Injected provider clients remain application-owned.
+
+## Tenancy and groups
+
+GroupID is the primary memory isolation boundary. Applications should derive it from trusted application state rather than arbitrary client input.
+
+Participant-scoped APIs add a second authorization layer for memories that are asserted, witnessed, granted, endorsed, or disputed by specific participants.
+
+## Persistence and temporal semantics
+
+Surriti preserves temporal history instead of destructively overwriting prior facts.
+
+The graph supports operations including:
+
+- assert
+- correct
+- terminate
+- qualify
+- noop
+
+Current-state reads and historical/as-of reads are separate operations. Corrections and singleton replacements preserve lineage through validity intervals and supersession metadata.
+
+## Development
+
+Run the normal checks with:
+
+~~~bash
 go fmt ./...
 go vet ./...
 go test ./...
 go test -race ./...
-```
+~~~
 
-For live checks, set `SURRITI_INTEGRATION=1` and the usual `SURRITI_SURREAL_URL`, `SURRITI_SURREAL_NS`, `SURRITI_SURREAL_USER`, and `SURRITI_SURREAL_PASS`. Tests always create and remove a uniquely named test database; they never use `SURRITI_SURREAL_DB`. The database account needs permission to create/remove those test databases.
+Live SurrealDB integration tests are opt-in:
 
-To include the cross-language check, set `SURRITI_PYTHON_REFERENCE` to the directory containing the matching Python `surriti` package and install its dependencies in the `python3` environment. Run the same `go test -race ./...` command. No hosted provider credentials are required: live database tests use deterministic providers.
+~~~bash
+export SURRITI_INTEGRATION=1
+export SURRITI_SURREAL_URL=ws://127.0.0.1:8000/rpc
+export SURRITI_SURREAL_NS=surriti_go
+export SURRITI_SURREAL_USER=root
+export SURRITI_SURREAL_PASS=root
 
-OpenAI-compatible and Anthropic adapters accept an injected `HTTPClient` for transport/timeout configuration and `MaxRetries` (constructors default to two). Custom base URLs stay entirely within adapters. Configure the embedding dimension consistently in the driver and embedder.
+go test -race ./...
+~~~
 
-## Priorities
+Integration tests create and remove uniquely named test databases and do not use SURRITI_SURREAL_DB.
 
-1. Correctness and data safety.
-2. Stable, predictable production behavior.
-3. Feature parity with the Python implementation.
-4. Deterministic and differential testing.
-5. Performance only after the first four are satisfied.
+## Compatibility history
 
-Library refactors must preserve the public API, schema, memory semantics, prompt contracts, and interoperability. Keep application-specific routing and behavior in the consuming application.
+This Go implementation was developed as a behavioral port of an earlier Python Surriti implementation. The compatibility work covers schema behavior, temporal facts, relation frames, participant memory, search and recall, cognition, memory packs, lifecycle behavior, and Python/Go interoperability.
 
-## Provider boundaries
+The detailed engineering contract is kept in [docs/PARITY.md](docs/PARITY.md). It is primarily maintainer documentation rather than required reading for library consumers.
 
-Surriti depends on capabilities, not vendors:
+## Security
 
-- `LLMClient`
-- `Embedder`
-- `CrossEncoder`
+Do not commit provider keys, database credentials, memory exports, or production data.
 
-Coordinator or another caller injects implementations. Surriti itself must not know or care whether the implementation uses OpenRouter, a local model, a hosted provider, or a deterministic test double.
+See [SECURITY.md](SECURITY.md) for vulnerability reporting guidance.
 
-## Port acceptance
+Destructive database clearing is disabled by default and requires SURRITI_ALLOW_DESTRUCTIVE=1.
 
-A capability is considered ported only when:
+## Contributing
 
-1. Its Python behavior is inventoried.
-2. Equivalent Go behavior is implemented.
-3. Unit tests cover the same invariants.
-4. Live SurrealDB integration tests pass.
-5. Python/Go differential fixtures produce equivalent persistent graph state and observable results.
-6. Restart, concurrency, retry, and idempotency behavior is verified where applicable.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-See [docs/PARITY.md](docs/PARITY.md) for the complete map.
+Behavior that changes persisted identity, schema compatibility, temporal lineage, authorization, or provider contracts should receive additional review because those are compatibility-sensitive surfaces.
+
+## License
+
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE).
