@@ -109,7 +109,7 @@ CRITICAL — third-party subjects: when the sentence's grammatical subject is a 
 	return fmt.Sprintf(`(Speaker context: "I"/"me"/"my" refer to the entity with stable id %q. Use %q as the subject for facts about the speaker. The OBJECT must be the actual value mentioned in the text -- never the literal word "speaker" or %q again. Examples: "my name is Auley" -> %s -[is_named]-> Auley; "I am 5 months old" -> %s -[is_age]-> 5 months; "I am a baby" -> %s -[is_a]-> baby. Add the value (Auley, 5 months, baby) to the entities list too.
 
 CRITICAL -- third-party subjects: when the sentence's grammatical subject is a NAMED entity (a person, pet, place, object) rather than a first-person pronoun, KEEP that named subject -- DO NOT substitute %q. Pronouns he/she/they/him/her resolve to the most recently mentioned named entity from CONTEXT, not to the speaker. Anti-examples: "Pixel is allergic to chicken" -> Pixel -[is_allergic_to]-> chicken (NOT %s -[is_allergic_to]-> chicken); "Mango hates thunderstorms" -> Mango -[hates]-> thunderstorms; "My sister Ava lives in Denver" -> Ava -[lives_in]-> Denver AND %s -[has_sister]-> Ava (two facts; Ava is the subject of the residence claim, NOT %s); "The vet cleared him" following a sentence about Pixel -> Pixel -[was_cleared_by]-> vet (the pronoun "him" resolves to Pixel, NOT to %s).)`,
-		speakerID, speakerID, speakerID, speakerID, speakerID, speakerID, speakerID, speakerID, speakerID, speakerID)
+		speakerID, speakerID, speakerID, speakerID, speakerID, speakerID, speakerID, speakerID, speakerID, speakerID, speakerID)
 }
 
 func pointerValue(p *string)string{if p==nil{return ""};return *p}
