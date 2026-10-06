@@ -55,7 +55,7 @@ FROM relates_to
 WHERE group_id = $g AND status = 'active' AND stability != 'consolidated'
 LIMIT $limit;`,map[string]any{"g":groupID,"limit":maxEdges})
 	if err!=nil{return 0,err};now:=utcNow();buckets:=map[string][]EntityEdge{}
-	for _,r:=range UnwrapRows(raw){e:=ParseEdge(r);if IsDecayProtected(e)||EffectiveConfidence(e,now,nil)>0{continue};bucket:=e.Domain;if bucket==""{bucket=e.CanonicalName};if bucket==""{bucket=e.Name};if bucket==""{bucket="misc"};key:=e.SourceNodeUUID+"\x00"+e.MemoryClass+"\x00"+bucket;buckets[key]=append(buckets[key],e)}
+	for _,r:=range UnwrapRows(raw){e:=ParseEdge(r);if IsDecayProtected(e)||EffectiveConfidence(e,now,nil)>0{continue};bucket:="";if e.Domain!=nil{bucket=*e.Domain};if bucket==""{bucket=e.CanonicalName};if bucket==""{bucket=e.Name};if bucket==""{bucket="misc"};key:=e.SourceNodeUUID+"\x00"+e.MemoryClass+"\x00"+bucket;buckets[key]=append(buckets[key],e)}
 	written:=0
 	for key,bucket:=range buckets{if len(bucket)<minEdges{continue};parts:=strings.SplitN(key,"\x00",3);canon:=bucket[0];support:=[]string{};for _,e:=range bucket{support=append(support,e.UUID)}
 		predicate:="archived_summary_"+parts[2]
