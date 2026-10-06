@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sort"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -80,7 +81,7 @@ func normalizeSearchConfig(cfg *SearchConfig) SearchConfig {
 	if out.EvidenceSentencesPerEdge == 0 { out.EvidenceSentencesPerEdge = 2 }
 	// A literal zero-value Go config should behave like Python SearchConfig().
 	zero := SearchConfig{}
-	if *cfg == zero {
+	if reflect.DeepEqual(*cfg, zero) {
 		return DefaultSearchConfig()
 	}
 	return out
