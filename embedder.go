@@ -30,9 +30,8 @@ func CreateBatch(ctx context.Context, e Embedder, input []string) ([][]float64, 
 type DummyEmbedder struct{ Dim int }
 
 func NewDummyEmbedder(dim int) *DummyEmbedder {
-	if dim <= 0 {
-		panic("surriti: embedding dimension must be positive")
-	}
+	// The Python dummy constructor accepts the dimension verbatim. Production
+	// configuration validation belongs to DriverConfig, not this test double.
 	return &DummyEmbedder{Dim: dim}
 }
 
@@ -82,17 +81,37 @@ func CreateBatchFallback(ctx context.Context, e Embedder, input []string) ([][]f
 }
 
 func CosineSimilarity(a, b []float64) float64 {
-	if len(a) == 0 || len(b) == 0 || len(a) != len(b) {
+	if len(a) == 0 || len(b) == 0 {
 		return 0
 	}
+	// embedder.py uses zip(..., strict=False) for the dot product while norms
+	// are computed over the complete vectors.
+	n := len(a)
+	if len(b) < n {
+		n = len(b)
+	}
 	var dot, aa, bb float64
-	for i := range a {
+	for i := 0; i < n; i++ {
 		dot += a[i] * b[i]
-		aa += a[i] * a[i]
-		bb += b[i] * b[i]
+	}
+	for _, x := range a {
+		aa += x * x
+	}
+	for _, x := range b {
+		bb += x * x
 	}
 	if aa <= 0 || bb <= 0 {
 		return 0
 	}
 	return dot / (math.Sqrt(aa) * math.Sqrt(bb))
+}
+
+// MemoryCosineSimilarity mirrors memory_retrieval.py, which intentionally
+// rejects dimension-mismatched embeddings instead of using embedder.py's
+// permissive zip semantics.
+func MemoryCosineSimilarity(a, b []float64) float64 {
+	if len(a) == 0 || len(b) == 0 || len(a) != len(b) {
+		return 0
+	}
+	return CosineSimilarity(a, b)
 }
