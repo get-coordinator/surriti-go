@@ -236,6 +236,8 @@ func ensureRelationFrameIdentity(f RelationFrame, groupID string) RelationFrame 
 	return f
 }
 
+var defaultFramesIdentityOnce sync.Once
+
 var DefaultFrames = []RelationFrame{
 	{CanonicalName: "spouse_of", Aliases: []string{"wife_of", "husband_of", "married_to", "partner_of"}, Directionality: DirectionSymmetric, TemporalKind: TemporalState, Cardinality: CardinalityOneCurrent, ContradictionPolicy: ContradictionReplace, Confidence: .9},
 	{CanonicalName: "parent_of", Aliases: []string{"father_of", "mother_of", "mom_of", "dad_of"}, Directionality: DirectionInversePair, InverseName: strptr("child_of"), TemporalKind: TemporalTimeless, Cardinality: CardinalityManyCurrent, ContradictionPolicy: ContradictionCoexist, Confidence: .9},
@@ -264,9 +266,12 @@ type RelationFrameRegistry struct {
 func NewRelationFrameRegistry(seedDefaults bool, classifier RelationFrameClassifier) *RelationFrameRegistry {
 	r := &RelationFrameRegistry{global: map[string]RelationFrame{}, byGroup: map[string]map[string]RelationFrame{}, classifier: classifier}
 	if seedDefaults {
-		for i, f := range DefaultFrames {
-			f = ensureRelationFrameIdentity(f, "")
-			DefaultFrames[i] = f
+		defaultFramesIdentityOnce.Do(func() {
+			for i, f := range DefaultFrames {
+				DefaultFrames[i] = ensureRelationFrameIdentity(f, "")
+			}
+		})
+		for _, f := range DefaultFrames {
 			r.registerGlobalLocked(cloneRelationFrame(f))
 		}
 	}
