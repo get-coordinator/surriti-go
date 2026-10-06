@@ -108,7 +108,7 @@ func CrossEncoderRerank(ctx context.Context, candidates []map[string]any, query,
 	}
 	passages := make([]string, len(candidates))
 	for i, c := range candidates {
-		passages[i] = asString(c[textField])
+		passages[i] = stringFromAny(c[textField])
 	}
 	ranked, err := crossEncoder.Rank(ctx, query, passages)
 	if err != nil {
@@ -120,8 +120,8 @@ func CrossEncoderRerank(ctx context.Context, candidates []map[string]any, query,
 	}
 	out := append([]map[string]any(nil), candidates...)
 	sort.SliceStable(out, func(i, j int) bool {
-		oi, iok := order[asString(out[i][textField])]
-		oj, jok := order[asString(out[j][textField])]
+		oi, iok := order[stringFromAny(out[i][textField])]
+		oj, jok := order[stringFromAny(out[j][textField])]
 		if !iok {
 			oi = len(out)
 		}

@@ -1,7 +1,6 @@
 package surriti
 
 import (
-	"encoding/json"
 	"reflect"
 	"time"
 )
@@ -95,10 +94,10 @@ func EdgePassesFilters(row map[string]any, f *SearchFilters) bool {
 	if f == nil {
 		return true
 	}
-	if f.EdgeTypes != nil && !containsString(f.EdgeTypes, asString(row["name"])) {
+	if f.EdgeTypes != nil && !containsString(f.EdgeTypes, stringFromAny(row["name"])) {
 		return false
 	}
-	if f.EdgeUUIDs != nil && !containsString(f.EdgeUUIDs, asString(row["uuid"])) {
+	if f.EdgeUUIDs != nil && !containsString(f.EdgeUUIDs, stringFromAny(row["uuid"])) {
 		return false
 	}
 	for _, item := range []struct {
@@ -119,7 +118,7 @@ func EdgePassesFilters(row map[string]any, f *SearchFilters) bool {
 	if f.EdgeMemoryClasses != nil {
 		cls := "objective"
 		if attrs, ok := row["attributes"].(map[string]any); ok {
-			if v := lowerTrim(asString(attrs["memory_class"])); v != "" {
+			if v := lowerTrim(stringFromAny(attrs["memory_class"])); v != "" {
 				cls = v
 			}
 		}
@@ -239,50 +238,6 @@ func containsString(xs []string, s string) bool {
 	return false
 }
 
-func asString(v any) string {
-	if v == nil {
-		return ""
-	}
-	if s, ok := v.(string); ok {
-		return s
-	}
-	// SurrealDB record IDs are SDK value types rather than plain strings.
-	// fmt.Sprint/stringFromAny preserves their canonical "table:id" form.
-	return stringFromAny(v)
-}
-
-func asStringSlice(v any) []string {
-	switch x := v.(type) {
-	case []string:
-		return x
-	case []any:
-		out := make([]string, 0, len(x))
-		for _, v := range x {
-			if s, ok := v.(string); ok {
-				out = append(out, s)
-			}
-		}
-		return out
-	default:
-		return nil
-	}
-}
-
-func asTimePtr(v any) *time.Time {
-	switch x := v.(type) {
-	case time.Time:
-		t := x
-		return &t
-	case *time.Time:
-		return x
-	case string:
-		if t, err := time.Parse(time.RFC3339Nano, x); err == nil {
-			return &t
-		}
-	}
-	return nil
-}
-
 func numericPair(a, b any) (float64, float64, bool) {
 	af, aok := toFloat(a)
 	bf, bok := toFloat(b)
@@ -291,37 +246,4 @@ func numericPair(a, b any) (float64, float64, bool) {
 func numericEqual(a, b any) bool {
 	af, bf, ok := numericPair(a, b)
 	return ok && af == bf
-}
-func toFloat(v any) (float64, bool) {
-	switch x := v.(type) {
-	case json.Number:
-		f, err := x.Float64()
-		return f, err == nil
-	case int:
-		return float64(x), true
-	case int8:
-		return float64(x), true
-	case int16:
-		return float64(x), true
-	case int32:
-		return float64(x), true
-	case int64:
-		return float64(x), true
-	case uint:
-		return float64(x), true
-	case uint8:
-		return float64(x), true
-	case uint16:
-		return float64(x), true
-	case uint32:
-		return float64(x), true
-	case uint64:
-		return float64(x), true
-	case float32:
-		return float64(x), true
-	case float64:
-		return x, true
-	default:
-		return 0, false
-	}
 }

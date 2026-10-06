@@ -37,8 +37,8 @@ func (s *Surriti) Inspect(ctx context.Context, groupID *string, limit int) (map[
 		return UnwrapRows(raw)
 	}
 	dup := safe("duplicate_entity_candidates",
-		"SELECT canonical_name, count() AS cnt, array::group(uuid) AS uuids FROM entity "+whereAnd()+
-			"canonical_name IS NOT NONE GROUP BY canonical_name HAVING count() > 1 ORDER BY cnt DESC LIMIT $lim;")
+		"SELECT * FROM (SELECT canonical_name, count() AS cnt, array::group(uuid) AS uuids FROM entity "+whereAnd()+
+			"canonical_name IS NOT NONE GROUP BY canonical_name) WHERE cnt > 1 ORDER BY cnt DESC LIMIT $lim;")
 	outDup := []map[string]any{}
 	for _, r := range dup {
 		outDup = append(outDup, map[string]any{"canonical_name": r["canonical_name"], "count": r["cnt"], "uuids": r["uuids"]})
@@ -77,7 +77,7 @@ func (s *Surriti) Inspect(ctx context.Context, groupID *string, limit int) (map[
 		ss = append(ss, map[string]any{"uuid": r["uuid"], "fact": r["fact"], "valid_at": r["valid_at"]})
 	}
 	report["stale_active_facts_sample"] = ss
-	report["low_confidence_facts"] = len(safe("low_confidence_facts", "SELECT uuid FROM relates_to "+whereAnd()+"confidence IS NOT NONE AND confidence < 0.5 ORDER BY confidence ASC LIMIT $lim;"))
+	report["low_confidence_facts"] = len(safe("low_confidence_facts", "SELECT uuid, confidence FROM relates_to "+whereAnd()+"confidence IS NOT NONE AND confidence < 0.5 ORDER BY confidence ASC LIMIT $lim;"))
 	toCounts := func(rows []map[string]any, key string) map[string]any {
 		m := map[string]any{}
 		for _, r := range rows {

@@ -1,12 +1,12 @@
 # Surriti Python -> Go parity map
 
-Reference: `the-hack-foundation/surriti@3e4a26d8e624f60bc3e58581a9336e5fb569aab4`
+Original reference: `the-hack-foundation/surriti@3e4a26d8e624f60bc3e58581a9336e5fb569aab4`. The 2026-10-06 acceptance audit also fixes confirmed defects in the working Python reference, as explicitly requested by the user.
 
 This document is the implementation contract for the parity phase. "Ported" means behaviorally equivalent, not merely represented by a similarly named type or function.
 
 ## Port status
 
-The source audit maps every production module and public facade capability to a Go implementation below. The Go runtime keeps the frozen schema, compatibility backfills, temporal operations, memory references, retrieval pipeline, and cognition pass order. This inventory is a source coverage statement; it is not a claim that every possible input has been differentially certified.
+The source audit maps every production module and public facade capability to a Go implementation below. Both working libraries share the schema migrations, compatibility backfills, temporal operations, memory references, retrieval pipeline, and cognition pass order. This inventory is a source coverage statement; it is not a claim that every possible input has been differentially certified.
 
 Python's `testing.py`, `py.typed`, packaging, and Python-only development scripts are excluded. Go uses native test doubles and the production SurrealDB SDK.
 
@@ -31,13 +31,13 @@ Python's `testing.py`, `py.typed`, packaging, and Python-only development script
 - Frozen Python golden fixtures for schema DDL, extraction/classification/contradiction prompts, and qualifier hashes. All four cognition prompt constants were also compared byte-for-byte against Python.
 - Targeted lifecycle/reconnect, scheduler shutdown/retry, parser, archive safety, ordering, read-model shape, and HTTP retry/cancellation tests.
 
-No application/production database was modified for validation. Hosted provider responses, production-volume behavior, extended outage/restart soak tests, and exhaustive differential fixtures remain deployment validation work.
+No application/production database was modified for validation. The external sibling harness now exercises real OpenRouter extraction and 768-dimensional embeddings, differential public API scenarios, multi-client writes, and actual disk-backed server restarts. See `../../surriti-smoke/VALIDATION.md` for current evidence. Production-volume and extended outage/soak behavior still require workload-specific validation.
 
 ## Preserved baseline behavior and safety boundaries
 
-Legacy equivalent-edge lookup and pack merge identity remain the frozen Python behavior, including their fallback matching rules; they were not redesigned into a new migration model. Explicit repair APIs remain available for existing fact-key collisions. Python's placeholder self-model goals result remains empty where the reference does so.
+Equivalent-edge lookup now respects qualifiers and singleton validity intervals. Pack imports retain qualifier identity and distinct historical versions. The unique fact-key index uses a computed version key: current facts retain their semantic key, while invalidated versions include their UUID. Existing current-key collisions still require explicit repair; valid history is never treated as a duplicate to delete. Python's placeholder self-model goals result remains empty where the reference does so.
 
-Go-specific safety mechanisms include context-aware synchronization, refusing unsafe ZIP members, bounded HTTP response reads, unique atomic-export temporary files, and applying participant authorization to silent-memory resurrection. These do not add tables or alter stored fact identity. Background shutdown assumes injected capabilities honor their contexts. Provider clients remain application-owned, as in the Python facade.
+Go-specific safety mechanisms include context-aware synchronization, refusing unsafe ZIP members, bounded HTTP response reads, unique atomic-export temporary files, and applying participant authorization to silent-memory resurrection. These do not add managed tables. The shared additive fact-key version field preserves the original semantic fact key while allowing historical recurrence. Background shutdown assumes injected capabilities honor their contexts. Provider clients remain application-owned, as in the Python facade.
 
 The adapter retry defaults follow the upstream [OpenAI Python SDK](https://github.com/openai/openai-python#retries) and [Anthropic Python SDK](https://github.com/anthropics/anthropic-sdk-python#retries); transport timing need not be byte-identical across languages. The core remains provider-neutral.
 
@@ -53,11 +53,26 @@ The adapter retry defaults follow the upstream [OpenAI Python SDK](https://githu
 - Ingest must remain resilient to cognition/profile background failures.
 - Provider implementations are injected behind interfaces. Core Surriti has no OpenRouter or Coordinator dependency.
 - Memory-pack import/export must remain deterministic, safe and idempotent.
-- Any behavior intentionally changed after parity requires a separately reviewed post-port change.
+- Shared behavior changes must be explicit, implemented in both runtimes, and covered by differential and independent invariant checks.
+
+## Acceptance audit changes (2026-10-06)
+
+- Persist relation-frame identity before facts reference it; reload stored frames on connection, including used merged aliases.
+- Keep numeric values distinct during semantic entity resolution; retain resolved surface-name mappings and recover omitted extraction endpoints.
+- Record declared name/alias relationships and honor explicit alias bindings over literal alias-value nodes.
+- Include explicit start/end timestamps in the extraction contract; both production prompts and golden fixtures were updated together.
+- Make replacement, conflict marking, and supersession writes atomic. Serialize competing singleton writes through a subject write inside the transaction and re-evaluate the slot on retry. Insert late historical assertions into the correct validity interval while retaining newer state; scheduled future changes leave current facts valid until their boundary.
+- Preserve historical versions and qualifiers through deduplication, schema migration, collision inspection, and repeated pack imports.
+- Include every competing fact in unresolved conflict groups; preserve empty-group fallback behavior in Go bulk ingestion.
+- Fix raw read-model parsing, diagnostic SurrealQL, and vector result ordering. Scoped retrieval uses exact cosine ranking to avoid global ANN omissions across tenants and authorized subsets.
+- Check all Python query-statement errors and preserve the underlying transaction failure for retries. Recognize SDK receive-task shutdown without swallowing caller cancellation.
+- Prevent Go connection-failure cleanup panics. Observe WebSocket close frames and heartbeat failures so pending/idle requests unblock and the existing driver reconnects after a real server restart.
+
+Registry registration remains synchronous: a frame configured after connection is persisted when used by ingestion. Do not interpret an unused in-memory registration as an acknowledged database write.
 
 ## Source inventory
 
-The Python package contains the runtime modules inventoried below, plus Python-only packaging/test support. The current test inventory contains 421 conventionally named tests across the principal test modules, plus stress/debug scripts.
+The Python package contains the runtime modules inventoried below, plus Python-only packaging/test support. Native tests and the external acceptance harness both contribute evidence; current executed counts are recorded in the harness validation report.
 
 ### Public facade and runtime
 

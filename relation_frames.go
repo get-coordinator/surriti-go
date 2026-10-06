@@ -247,7 +247,7 @@ func pythonJSONString(s string) string {
 }
 
 func MakeSlotKey(groupID, subjectUUID, canonicalName string, qualifiers map[string]any) string {
-	return strings.Join([]string{trim(groupID), trim(subjectUUID), lowerTrim(canonicalName), QualifierHash(qualifiers)}, "::")
+	return strings.Join([]string{strings.TrimSpace(groupID), strings.TrimSpace(subjectUUID), lowerTrim(canonicalName), QualifierHash(qualifiers)}, "::")
 }
 
 func NormalizeSymmetric(subjectUUID, objectUUID string) (string, string) {

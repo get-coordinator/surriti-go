@@ -307,7 +307,7 @@ func EnforceFactKeyUniqueness(ctx context.Context, driver Queryer) error {
 	if _, err := BackfillFactKeys(ctx, driver); err != nil {
 		return err
 	}
-	result, err := driver.Query(ctx, "\nSELECT group_id, fact_key, count() AS count\nFROM relates_to\nWHERE fact_key != \"\"\nGROUP BY group_id, fact_key;\n", nil)
+	result, err := driver.Query(ctx, "\nSELECT group_id, fact_key, count() AS count\nFROM relates_to\nWHERE fact_key != \"\" AND invalid_at IS NONE\nGROUP BY group_id, fact_key;\n", nil)
 	if err != nil {
 		return err
 	}
@@ -324,7 +324,13 @@ func EnforceFactKeyUniqueness(ctx context.Context, driver Queryer) error {
 			len(collisions), stringFromAny(sample["group_id"]), stringFromAny(sample["fact_key"]),
 		)
 	}
-	_, err = driver.Query(ctx, "\nDEFINE INDEX OVERWRITE relates_to_fact_key_idx\nON relates_to FIELDS group_id, fact_key UNIQUE;\n", nil)
+	_, err = driver.Query(ctx, `
+DEFINE FIELD OVERWRITE fact_key_version ON relates_to TYPE string
+VALUE IF invalid_at IS NONE THEN fact_key ELSE string::concat(fact_key, "::history::", uuid) END;
+UPDATE relates_to SET fact_key = fact_key WHERE fact_key_version IS NONE;
+DEFINE INDEX OVERWRITE relates_to_fact_key_idx
+ON relates_to FIELDS group_id, fact_key_version UNIQUE;
+`, nil)
 	return err
 }
 

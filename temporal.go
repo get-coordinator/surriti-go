@@ -110,8 +110,8 @@ func InvalidateEdges(ctx context.Context, driver Queryer, edgeUUIDs []string, in
 	}
 	_, err := driver.Query(ctx, `
 UPDATE relates_to
-SET invalid_at = $invalid_at, expired_at = $expired_at,
-    status = "superseded", superseded_by = $superseded_by
+SET invalid_at = $invalid_at, expired_at = IF $invalid_at <= time::now() THEN $expired_at ELSE NONE END,
+    status = IF $invalid_at <= time::now() THEN "superseded" ELSE "active" END, superseded_by = $superseded_by
 WHERE uuid IN $uuids AND (invalid_at IS NONE OR invalid_at > $invalid_at);
 `, map[string]any{
 		"uuids":         edgeUUIDs,
@@ -135,6 +135,24 @@ func ResolveContradictions(
 	newEdgeUUID *string,
 	newSubjectUUID *string,
 	newObjectUUID *string,
+) ([]EntityEdge, error) {
+	return resolveContradictions(ctx, driver, llm, newFact, newFactEmbedding, newValidAt, groupID, similarityLimit, newFactStruct, newEdgeUUID, newSubjectUUID, newObjectUUID, true)
+}
+
+func resolveContradictions(
+	ctx context.Context,
+	driver Queryer,
+	llm LLMClient,
+	newFact string,
+	newFactEmbedding []float64,
+	newValidAt time.Time,
+	groupID string,
+	similarityLimit int,
+	newFactStruct *ExtractedFact,
+	newEdgeUUID *string,
+	newSubjectUUID *string,
+	newObjectUUID *string,
+	apply bool,
 ) ([]EntityEdge, error) {
 	if similarityLimit == 0 {
 		similarityLimit = 10
@@ -200,8 +218,10 @@ func ResolveContradictions(
 		invalidated = append(invalidated, edges[idx])
 		uuids = append(uuids, edges[idx].UUID)
 	}
-	if err := InvalidateEdges(ctx, driver, uuids, newValidAt, newEdgeUUID); err != nil {
-		return nil, err
+	if apply {
+		if err := InvalidateEdges(ctx, driver, uuids, newValidAt, newEdgeUUID); err != nil {
+			return nil, err
+		}
 	}
 	return invalidated, nil
 }

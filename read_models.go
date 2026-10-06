@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 )
@@ -61,7 +62,7 @@ func ReadModelJSONable(value any) any {
 		if m, ok := toStringAnyMap(value); ok {
 			return ReadModelJSONable(m)
 		}
-		return fmt.Sprint(value)
+		return stringFromAny(value)
 	}
 }
 
@@ -76,81 +77,26 @@ func ReadModelRecordID(value any) string {
 // unwrapReadModelRows matches read_models.py: legacy statement wrappers are
 // flattened rather than taking only the final statement.
 func unwrapReadModelRows(rows any) []map[string]any {
-	if rows == nil {
-		return []map[string]any{}
+	out := []map[string]any{}
+	var walk func(any)
+	walk = func(value any) {
+		if row, ok := toStringAnyMap(value); ok {
+			if result, exists := row["result"]; exists {
+				walk(result)
+			} else {
+				out = append(out, row)
+			}
+			return
+		}
+		v := reflect.ValueOf(value)
+		if v.IsValid() && (v.Kind() == reflect.Slice || v.Kind() == reflect.Array) {
+			for i := 0; i < v.Len(); i++ {
+				walk(v.Index(i).Interface())
+			}
+		}
 	}
-	if row, ok := toStringAnyMap(rows); ok {
-		if result, exists := row["result"]; exists {
-			if m, ok := toStringAnyMap(result); ok {
-				return []map[string]any{m}
-			}
-			if xs := mapsFromAnySlice(result); xs != nil {
-				return xs
-			}
-		}
-		return []map[string]any{row}
-	}
-	switch xs := rows.(type) {
-	case []map[string]any:
-		allWrapped := len(xs) > 0
-		for _, row := range xs {
-			if _, ok := row["result"]; !ok {
-				allWrapped = false
-				break
-			}
-		}
-		if allWrapped {
-			out := []map[string]any{}
-			for _, row := range xs {
-				if m, ok := toStringAnyMap(row["result"]); ok {
-					out = append(out, m)
-				} else if nested := mapsFromAnySlice(row["result"]); nested != nil {
-					out = append(out, nested...)
-				}
-			}
-			return out
-		}
-		return xs
-	case []any:
-		if len(xs) == 0 {
-			return []map[string]any{}
-		}
-		allWrapped := true
-		for _, item := range xs {
-			row, ok := toStringAnyMap(item)
-			if !ok {
-				continue
-			}
-			if _, exists := row["result"]; !exists {
-				allWrapped = false
-				break
-			}
-		}
-		if allWrapped {
-			out := []map[string]any{}
-			for _, item := range xs {
-				row, ok := toStringAnyMap(item)
-				if !ok {
-					continue
-				}
-				if m, ok := toStringAnyMap(row["result"]); ok {
-					out = append(out, m)
-				} else if nested := mapsFromAnySlice(row["result"]); nested != nil {
-					out = append(out, nested...)
-				}
-			}
-			return out
-		}
-		out := []map[string]any{}
-		for _, item := range xs {
-			if m, ok := toStringAnyMap(item); ok {
-				out = append(out, m)
-			}
-		}
-		return out
-	default:
-		return []map[string]any{}
-	}
+	walk(rows)
+	return out
 }
 
 func readModelQuery(ctx context.Context, driver Queryer, query string, vars map[string]any) ([]map[string]any, error) {
@@ -242,7 +188,7 @@ func GraphEdge(table string, row map[string]any, source, target, name string) ma
 		"id": id, "uuid": id, "table": table, "kind": table,
 		"source": source, "target": target, "name": name, "canonical_name": canonical,
 		"label": label, "fact": stringFromAny(row["fact"]), "group_id": stringFromAny(row["group_id"]),
-		"episodes": asStringSlice(row["episodes"]), "valid_at": ReadModelJSONable(row["valid_at"]),
+		"episodes": append([]string{}, asStringSlice(row["episodes"])...), "valid_at": ReadModelJSONable(row["valid_at"]),
 		"invalid_at": ReadModelJSONable(row["invalid_at"]), "expired_at": ReadModelJSONable(row["expired_at"]),
 		"created_at": ReadModelJSONable(row["created_at"]), "status": stringFromAny(row["status"]),
 		"polarity": stringFromAny(row["polarity"]), "source_type": stringFromAny(row["source_type"]),
@@ -250,13 +196,13 @@ func GraphEdge(table string, row map[string]any, source, target, name string) ma
 		"singleton": boolFromAny(row["singleton"]), "domain": stringFromAny(row["domain"]),
 		"fact_key": stringFromAny(row["fact_key"]), "relation_frame_id": stringFromAny(row["relation_frame_id"]),
 		"qualifiers": ReadModelJSONable(mapFromAny(row["qualifiers"])), "roles": ReadModelJSONable(mapFromAny(row["roles"])),
-		"supersedes": asStringSlice(row["supersedes"]), "superseded_by": stringFromAny(row["superseded_by"]),
+		"supersedes": append([]string{}, asStringSlice(row["supersedes"])...), "superseded_by": stringFromAny(row["superseded_by"]),
 		"conflict_group_id": stringFromAny(row["conflict_group_id"]), "derived": boolFromAny(row["derived"]),
 		"derived_from": stringFromAny(row["derived_from"]), "attributes": ReadModelJSONable(attrs),
 		"is_belief": boolFromAny(row["is_belief"]), "belief_holder": stringFromAny(row["belief_holder"]),
 		"weight": row["weight"], "decay_score": row["decay_score"], "reinforcement_count": row["reinforcement_count"],
 		"stability": defaultString(stringFromAny(row["stability"]), "episodic"),
-		"valence":   row["valence"], "intensity": row["intensity"], "consolidates": asStringSlice(row["consolidates"]),
+		"valence":   row["valence"], "intensity": row["intensity"], "consolidates": append([]string{}, asStringSlice(row["consolidates"])...),
 		"memory_class": memoryClass, "raw": ReadModelJSONable(row),
 	}
 }

@@ -119,7 +119,11 @@ func existingRowsByKey(ctx context.Context, driver Queryer, table, groupID, fiel
 	if len(values) == 0 {
 		return map[string]map[string]any{}, nil
 	}
-	q := fmt.Sprintf("SELECT * FROM %s WHERE group_id = $g AND %s IN $values;", table, field)
+	condition := ""
+	if table == "relates_to" {
+		condition = " AND invalid_at IS NONE"
+	}
+	q := fmt.Sprintf("SELECT * FROM %s WHERE group_id = $g AND %s IN $values%s;", table, field, condition)
 	raw, err := driver.Query(ctx, q, map[string]any{"g": groupID, "values": values})
 	if err != nil {
 		return nil, err
@@ -358,9 +362,14 @@ func ImportGroupFromDir(ctx context.Context, driver Queryer, inputDir, targetGro
 			edgeName = stringFromAny(source["name"])
 		}
 		if src != "" && tgt != "" {
-			key := MakeFactKey(targetGroupID, src, edgeName, tgt, "")
-			edgeFactKeys[sourceUUID] = key
-			edgeMap[sourceUUID] = stableImportUUID(targetGroupID, "relates_to", key, "")
+			key := MakeFactKey(targetGroupID, src, edgeName, tgt, QualifierHash(mapFromAny(source["qualifiers"])))
+			identity := key
+			if source["invalid_at"] != nil {
+				identity += "::history::" + sourceUUID
+			} else {
+				edgeFactKeys[sourceUUID] = key
+			}
+			edgeMap[sourceUUID] = stableImportUUID(targetGroupID, "relates_to", identity, "")
 		} else {
 			edgeMap[sourceUUID] = stableImportUUID(targetGroupID, "relates_to", sourceUUID, "")
 		}
@@ -435,7 +444,7 @@ func ImportGroupFromDir(ctx context.Context, driver Queryer, inputDir, targetGro
 		}
 		withOrigin(row, edgeOrigin)
 		row["source_type"] = "imported"
-		row["fact_key"] = MakeFactKey(targetGroupID, src, edgeName, tgt, "")
+		row["fact_key"] = MakeFactKey(targetGroupID, src, edgeName, tgt, QualifierHash(mapFromAny(row["qualifiers"])))
 		if err := upsertPackEdge(ctx, driver, row); err != nil {
 			return ImportResult{}, err
 		}

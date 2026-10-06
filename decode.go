@@ -1,6 +1,7 @@
 package surriti
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 )
@@ -315,5 +316,71 @@ func ParseCommunity(row map[string]any) CommunityNode {
 		BaseModel: BaseModel{UUID: uuid, GroupID: stringFromAny(row["group_id"]), CreatedAt: created},
 		Name:      stringFromAny(row["name"]), NameEmbedding: rowVector(row["name_embedding"]),
 		Summary: stringFromAny(row["summary"]), Kind: kind, Domain: stringPtrFromAny(row["domain"]), Payload: payload,
+	}
+}
+
+func asStringSlice(v any) []string {
+	switch x := v.(type) {
+	case []string:
+		return x
+	case []any:
+		out := make([]string, 0, len(x))
+		for _, v := range x {
+			if s, ok := v.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	default:
+		return nil
+	}
+}
+
+func asTimePtr(v any) *time.Time {
+	switch x := v.(type) {
+	case time.Time:
+		t := x
+		return &t
+	case *time.Time:
+		return x
+	case string:
+		if t, err := time.Parse(time.RFC3339Nano, x); err == nil {
+			return &t
+		}
+	}
+	return nil
+}
+
+func toFloat(v any) (float64, bool) {
+	switch x := v.(type) {
+	case json.Number:
+		f, err := x.Float64()
+		return f, err == nil
+	case int:
+		return float64(x), true
+	case int8:
+		return float64(x), true
+	case int16:
+		return float64(x), true
+	case int32:
+		return float64(x), true
+	case int64:
+		return float64(x), true
+	case uint:
+		return float64(x), true
+	case uint8:
+		return float64(x), true
+	case uint16:
+		return float64(x), true
+	case uint32:
+		return float64(x), true
+	case uint64:
+		return float64(x), true
+	case float32:
+		return float64(x), true
+	case float64:
+		return x, true
+	default:
+		return 0, false
 	}
 }

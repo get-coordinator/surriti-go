@@ -10,7 +10,11 @@ import (
 type OfficialSurrealFactory struct{}
 
 func (OfficialSurrealFactory) Open(ctx context.Context, url string) (DBClient, error) {
-	return surrealtransport.Open(ctx, url)
+	client, err := surrealtransport.Open(ctx, url)
+	if err != nil {
+		return nil, err
+	}
+	return client, nil
 }
 
 func NewDefaultSurrealDriver(cfg DriverConfig) (*SurrealDriver, error) {

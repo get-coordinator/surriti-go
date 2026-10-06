@@ -312,18 +312,5 @@ func (s *CognitionScheduler) Shutdown(ctx context.Context) {
 	}
 	s.mu.Unlock()
 
-	done := make(chan struct{})
-	go func() { s.wg.Wait(); close(done) }()
-	timer := time.NewTimer(2 * time.Second)
-	defer timer.Stop()
-	select {
-	case <-done:
-		s.cancel()
-		return
-	case <-timer.C:
-		s.cancel()
-	case <-ctx.Done():
-		s.cancel()
-	}
-	<-done
+	drainBackground(ctx, &s.wg, s.cancel)
 }

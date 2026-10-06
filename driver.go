@@ -23,6 +23,7 @@ var staleConnectionTokens = []string{
 
 var transactionConflictTokens = []string{
 	"transaction conflict",
+	"write conflict",
 	"resource busy",
 }
 

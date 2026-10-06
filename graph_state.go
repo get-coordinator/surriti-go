@@ -93,7 +93,8 @@ func (s *Surriti) GetCurrentFacts(ctx context.Context, subjectUUID, groupID stri
 		"group_id = $group_id",
 		`in = type::record("entity", $src)`,
 		`status = "active"`,
-		"invalid_at IS NONE",
+		"(valid_at IS NONE OR valid_at <= time::now())",
+		"(invalid_at IS NONE OR invalid_at > time::now())",
 	}
 	params := map[string]any{"group_id": groupID, "src": subjectUUID, "limit": limit}
 	if predicate != nil {

@@ -250,7 +250,7 @@ func (s *Surriti) upsertEntities(ctx context.Context, extracted []ExtractedEntit
 			if key == "" {
 				continue
 			}
-			if _, ok := existingByKey[key]; ok {
+			if _, ok := existingByKey[key]; ok && hit.Resolution != ResolutionAliasHit {
 				continue
 			}
 			if node, ok := uuidToNode[*hit.CanonicalUUID]; ok {
@@ -371,15 +371,16 @@ DELETE entity WHERE group_id = $group_id AND uuid IN $aliases;
 	return err
 }
 
-func (s *Surriti) findEquivalentEdge(ctx context.Context, groupID, subjectUUID, objectUUID, predicate, factText, qualifierHash string) (*EntityEdge, error) {
+func (s *Surriti) findEquivalentEdge(ctx context.Context, groupID, subjectUUID, objectUUID, predicate, factText, qualifierHash string, asOf *time.Time) (*EntityEdge, error) {
 	_ = factText
 	key := MakeFactKey(groupID, subjectUUID, predicate, objectUUID, qualifierHash)
 	raw, err := s.Driver.Query(ctx, `
 SELECT * FROM relates_to
 WHERE group_id = $group_id
     AND fact_key = $key
-    AND invalid_at IS NONE
-LIMIT 10;`, map[string]any{"group_id": groupID, "key": key})
+    AND ($as_of IS NONE OR valid_at IS NONE OR valid_at <= $as_of)
+    AND (invalid_at IS NONE OR ($as_of IS NOT NONE AND invalid_at > $as_of))
+LIMIT 10;`, map[string]any{"as_of": asOf, "group_id": groupID, "key": key})
 	if err != nil {
 		return nil, err
 	}
@@ -394,17 +395,20 @@ WHERE group_id = $group_id
     AND in = type::record("entity", $src)
     AND out = type::record("entity", $tgt)
     AND name = $name
-    AND invalid_at IS NONE
-LIMIT 10;`, map[string]any{"group_id": groupID, "src": subjectUUID, "tgt": objectUUID, "name": predicate})
+    AND ($as_of IS NONE OR valid_at IS NONE OR valid_at <= $as_of)
+    AND (invalid_at IS NONE OR ($as_of IS NOT NONE AND invalid_at > $as_of))
+LIMIT 10;`, map[string]any{"as_of": asOf, "group_id": groupID, "src": subjectUUID, "tgt": objectUUID, "name": predicate})
 	if err != nil {
 		return nil, err
 	}
 	rows = UnwrapRows(raw)
-	if len(rows) == 0 {
-		return nil, nil
+	for _, row := range rows {
+		e := ParseEdge(row)
+		if QualifierHash(e.Qualifiers) == qualifierHash {
+			return &e, nil
+		}
 	}
-	e := ParseEdge(rows[0])
-	return &e, nil
+	return nil, nil
 }
 
 func factQualifierHash(factKey string) string {
@@ -429,8 +433,9 @@ SELECT * FROM relates_to
 WHERE group_id = $group_id
     AND in = type::record("entity", $src)
     AND name = $name
-    AND status = "active"
-    AND invalid_at IS NONE;`, map[string]any{"group_id": groupID, "src": subjectUUID, "name": predicate})
+    AND status IN ["active", "superseded"]
+    AND (valid_at IS NONE OR valid_at <= $as_of)
+    AND (invalid_at IS NONE OR invalid_at > $as_of);`, map[string]any{"as_of": invalidAt, "group_id": groupID, "src": subjectUUID, "name": predicate})
 	if err != nil {
 		return nil, err
 	}
@@ -454,16 +459,12 @@ WHERE group_id = $group_id
 		toClose = append(toClose, ParseEdge(row))
 	}
 	if len(toClose) > 0 {
-		ids := make([]string, len(toClose))
-		for i, e := range toClose {
-			ids[i] = e.UUID
-		}
-		if err := InvalidateEdges(ctx, s.Driver, ids, invalidAt, &supersededBy); err != nil {
-			return nil, err
-		}
 		for i := range toClose {
 			toClose[i].InvalidAt = &invalidAt
 			toClose[i].Status = "superseded"
+			if invalidAt.After(utcNow()) {
+				toClose[i].Status = "active"
+			}
 			toClose[i].SupersededBy = &supersededBy
 		}
 	}
@@ -483,13 +484,13 @@ func (s *Surriti) applyReplaces(ctx context.Context, groupID, subjectUUID string
 		if text == "" {
 			continue
 		}
-		var emb []float64
-		if v, err := s.Embedder.Create(ctx, text); err == nil {
-			emb = v
+		emb, err := s.Embedder.Create(ctx, text)
+		if err != nil {
+			return nil, fmt.Errorf("embed replacement descriptor: %w", err)
 		}
 		candidates, err := FindSimilarEdges(ctx, s.Driver, text, emb, groupID, similarityLimit, nil, nil, true)
 		if err != nil {
-			continue
+			return nil, fmt.Errorf("find replaced facts: %w", err)
 		}
 		for _, edge := range candidates {
 			if excludeEdgeUUID != nil && edge.UUID == *excludeEdgeUUID {
@@ -504,18 +505,16 @@ func (s *Surriti) applyReplaces(ctx context.Context, groupID, subjectUUID string
 		}
 	}
 	out := make([]EntityEdge, 0, len(seen))
-	ids := make([]string, 0, len(seen))
 	for _, edge := range seen {
 		out = append(out, edge)
-		ids = append(ids, edge.UUID)
 	}
-	if len(ids) > 0 {
-		if err := InvalidateEdges(ctx, s.Driver, ids, invalidAt, &supersededBy); err != nil {
-			return nil, err
-		}
+	if len(out) > 0 {
 		for i := range out {
 			out[i].InvalidAt = &invalidAt
 			out[i].Status = "superseded"
+			if invalidAt.After(utcNow()) {
+				out[i].Status = "active"
+			}
 			out[i].SupersededBy = &supersededBy
 		}
 	}
@@ -549,6 +548,9 @@ WHERE group_id = $group_id
 		for i := range edges {
 			edges[i].InvalidAt = &invalidAt
 			edges[i].Status = "superseded"
+			if invalidAt.After(utcNow()) {
+				edges[i].Status = "active"
+			}
 		}
 	}
 	return edges, nil
@@ -560,7 +562,7 @@ SELECT * FROM relates_to
 WHERE group_id = $group_id
     AND in = type::record("entity", $src)
     AND name = $name
-    AND status = "active"
+    AND status IN ["active", "needs_resolution"]
     AND invalid_at IS NONE;`, map[string]any{"group_id": groupID, "src": subjectUUID, "name": predicate})
 	if err != nil {
 		return nil, err
@@ -577,14 +579,6 @@ WHERE group_id = $group_id
 		out = append(out, ParseEdge(row))
 	}
 	return out, nil
-}
-
-func (s *Surriti) markConflictGroup(ctx context.Context, edgeUUIDs []string, conflictGroupID string) error {
-	if len(edgeUUIDs) == 0 {
-		return nil
-	}
-	_, err := s.Driver.Query(ctx, "UPDATE relates_to SET conflict_group_id = $cg WHERE uuid IN $uuids;", map[string]any{"uuids": edgeUUIDs, "cg": conflictGroupID})
-	return err
 }
 
 func uniqueEdgeUUIDs(groups ...[]EntityEdge) []string {
@@ -616,6 +610,13 @@ func (s *Surriti) addFactEdge(ctx context.Context, fact ExtractedFact, subject, 
 		req.SourceSpan = fact.Fact
 	}
 	frame, hasFrame := s.RelationFrames.Resolve(ctx, req, groupID)
+	if hasFrame {
+		var err error
+		frame, err = s.persistFrame(ctx, frame)
+		if err != nil {
+			return EntityEdge{}, nil, err
+		}
+	}
 	canonicalName := fact.Predicate
 	edgeName := canonicalName
 	subjUUID, objUUID := subject.UUID, obj.UUID
@@ -644,6 +645,9 @@ func (s *Surriti) addFactEdge(ctx context.Context, fact ExtractedFact, subject, 
 			isSingleton = true
 		}
 	}
+	if op == FactCorrect && sourceType == "user" {
+		isSingleton = true
+	}
 	qhash := QualifierHash(fact.Qualifiers)
 	factText := fact.Fact
 	if factText == "" {
@@ -653,7 +657,11 @@ func (s *Surriti) addFactEdge(ctx context.Context, fact ExtractedFact, subject, 
 	if err != nil {
 		return EntityEdge{}, nil, err
 	}
-	existing, err := s.findEquivalentEdge(ctx, groupID, subjUUID, objUUID, edgeName, factText, qhash)
+	var equivalentAt *time.Time
+	if isSingleton {
+		equivalentAt = &validAt
+	}
+	existing, err := s.findEquivalentEdge(ctx, groupID, subjUUID, objUUID, edgeName, factText, qhash, equivalentAt)
 	if err != nil {
 		return EntityEdge{}, nil, err
 	}
@@ -681,13 +689,14 @@ func (s *Surriti) addFactEdge(ctx context.Context, fact ExtractedFact, subject, 
 	}
 	edgeStatus := "active"
 	var conflictGroupID *string
+	conflictPeers := []string{}
 	invalidated := []EntityEdge{}
 	if len(singletonClosed) > 0 {
 		invalidated = append(invalidated, singletonClosed...)
-	} else if hasFrame && frame.ContradictionPolicy == ContradictionCoexist {
+	} else if isSingleton || (hasFrame && frame.ContradictionPolicy == ContradictionCoexist) {
 		invalidated = []EntityEdge{}
 	} else {
-		invalidated, err = ResolveContradictions(ctx, s.Driver, s.LLM, factText, embedding, validAt, groupID, 10, &fact, &edgeUUID, &subjUUID, &objUUID)
+		invalidated, err = resolveContradictions(ctx, s.Driver, s.LLM, factText, embedding, validAt, groupID, 10, &fact, &edgeUUID, &subjUUID, &objUUID, false)
 		if err != nil {
 			return EntityEdge{}, nil, err
 		}
@@ -715,9 +724,7 @@ func (s *Surriti) addFactEdge(ctx context.Context, fact ExtractedFact, subject, 
 			for i, p := range peers {
 				ids[i] = p.UUID
 			}
-			if err := s.markConflictGroup(ctx, ids, cg); err != nil {
-				return EntityEdge{}, nil, err
-			}
+			conflictPeers = ids
 		}
 	}
 	edge := NewEntityEdge(subjUUID, objUUID, edgeName, groupID)
@@ -735,7 +742,7 @@ func (s *Surriti) addFactEdge(ctx context.Context, fact ExtractedFact, subject, 
 	edge.Temporal = fact.Temporal || (hasFrame && frame.TemporalKind == TemporalState)
 	edge.Singleton = isSingleton
 	edge.Domain = fact.Domain
-	edge.Supersedes = uniqueEdgeUUIDs(singletonClosed, replacesClosed)
+	edge.Supersedes = uniqueEdgeUUIDs(invalidated)
 	edge.FactKey = MakeFactKey(groupID, subjUUID, edgeName, objUUID, qhash)
 	if hasFrame {
 		id := frame.UUID
@@ -750,7 +757,44 @@ func (s *Surriti) addFactEdge(ctx context.Context, fact ExtractedFact, subject, 
 	edge.ConflictGroupID = conflictGroupID
 	edge.MemoryClass = normalizedMemoryClass(fact.MemoryClass)
 	edge.Attributes = map[string]any{"memory_class": edge.MemoryClass}
-	_, err = s.Driver.Query(ctx, `
+	declaredAlias := ""
+	switch edgeName {
+	case "is_named", "is_called", "is_aka", "has_alias", "also_known_as":
+		if op == FactAssert && sourceType == "user" && subjUUID != objUUID {
+			declaredAlias = objNode.Name
+		}
+	}
+	var aliasEpisode *string
+	if episode != nil {
+		aliasEpisode = &episode.UUID
+	}
+	// Publish replacement and invalidations atomically: a rejected new fact must
+	// leave the prior state and its supersession links untouched.
+	written, err := s.Driver.Query(ctx, `
+BEGIN TRANSACTION;
+-- Writing the subject makes concurrent singleton transactions conflict rather
+-- than both committing against an empty slot. The driver retries the whole query.
+IF $close_singleton { UPDATE entity SET last_seen_at = $created_at WHERE uuid = $src; };
+LET $next = (SELECT uuid, valid_at FROM relates_to
+    WHERE $close_singleton AND group_id = $group_id AND in = type::record("entity", $src)
+    AND name = $name AND valid_at > $valid_at AND qualifiers = $qualifiers
+    AND (attributes.memory_class ?? "objective") = $memory_class ORDER BY valid_at ASC LIMIT 1)[0];
+LET $bounded_invalid = IF $next.valid_at IS NOT NONE AND ($invalid_at IS NONE OR $next.valid_at < $invalid_at) THEN $next.valid_at ELSE $invalid_at END;
+LET $next_uuid = IF $bounded_invalid = $next.valid_at THEN $next.uuid ELSE NONE END;
+LET $slot_peers = SELECT VALUE uuid FROM relates_to
+    WHERE $close_singleton AND group_id = $group_id AND in = type::record("entity", $src)
+    AND out != type::record("entity", $tgt) AND name = $name
+    AND (valid_at IS NONE OR valid_at <= $valid_at) AND (invalid_at IS NONE OR invalid_at > $valid_at)
+    AND status IN ["active", "superseded"] AND qualifiers = $qualifiers
+    AND (attributes.memory_class ?? "objective") = $memory_class;
+LET $closed = array::distinct(array::concat($supersedes, $slot_peers));
+UPDATE relates_to SET invalid_at = $valid_at,
+    expired_at = IF $valid_at <= time::now() THEN $created_at ELSE NONE END,
+    status = IF $valid_at <= time::now() THEN "superseded" ELSE "active" END, superseded_by = $uuid
+WHERE uuid IN $closed AND (valid_at IS NONE OR valid_at <= $valid_at) AND (invalid_at IS NONE OR invalid_at > $valid_at);
+UPDATE relates_to SET supersedes = array::distinct(array::append(array::difference(supersedes, $closed), $uuid)) WHERE uuid = $next_uuid;
+UPDATE relates_to SET conflict_group_id = $conflict_group_id, status = "needs_resolution"
+WHERE uuid IN $conflict_peers;
 RELATE (type::record("entity", $src))->relates_to->(type::record("entity", $tgt))
 CONTENT {
     uuid: $uuid,
@@ -760,15 +804,17 @@ CONTENT {
     fact_embedding: $emb,
     episodes: $episodes,
     valid_at: $valid_at,
-    invalid_at: $invalid_at,
-    status: $status,
+    invalid_at: $bounded_invalid,
+    superseded_by: $next_uuid,
+    expired_at: IF $bounded_invalid IS NOT NONE AND $bounded_invalid <= time::now() THEN $created_at ELSE NONE END,
+    status: IF $bounded_invalid IS NOT NONE AND $bounded_invalid <= time::now() THEN "superseded" ELSE $status END,
     polarity: $polarity,
     source_type: $source_type,
     confidence: $confidence,
     temporal: $temporal,
     singleton: $singleton,
     domain: $domain,
-    supersedes: $supersedes,
+    supersedes: $closed,
     fact_key: $fact_key,
     relation_frame_id: $relation_frame_id,
     canonical_name: $canonical_name,
@@ -779,8 +825,21 @@ CONTENT {
     derived_from: $derived_from,
     attributes: $attributes,
     created_at: $created_at
-};`, map[string]any{
-		"src": subjUUID, "tgt": objUUID, "uuid": edge.UUID, "group_id": edge.GroupID, "name": edge.Name,
+};
+IF $declared_alias != "" {
+    LET $binding = SELECT VALUE entity_uuid FROM entity_alias WHERE group_id = $group_id AND normalized_alias = $normalized_alias;
+    IF array::len($binding) > 0 AND $binding[0] != $src { THROW "Ambiguous declared entity alias"; };
+    UPSERT entity_alias SET uuid = uuid ?? $alias_uuid, group_id = $group_id,
+        alias = $declared_alias, normalized_alias = $normalized_alias, entity_uuid = $src,
+        confidence = $confidence, source_episode_uuid = $alias_episode, created_at = created_at ?? $created_at
+    WHERE group_id = $group_id AND normalized_alias = $normalized_alias;
+    UPDATE entity SET aliases = array::distinct(array::append(aliases, $declared_alias)) WHERE uuid = $src;
+};
+COMMIT TRANSACTION;
+SELECT uuid, supersedes, invalid_at, status, superseded_by, expired_at FROM relates_to WHERE uuid = $uuid;`, map[string]any{
+		"close_singleton": isSingleton, "memory_class": edge.MemoryClass,
+		"declared_alias": declaredAlias, "normalized_alias": NormalizeAlias(declaredAlias), "alias_uuid": newUUID(), "alias_episode": aliasEpisode,
+		"conflict_peers": conflictPeers, "src": subjUUID, "tgt": objUUID, "uuid": edge.UUID, "group_id": edge.GroupID, "name": edge.Name,
 		"fact": edge.Fact, "emb": edge.FactEmbedding, "episodes": edge.Episodes, "valid_at": edge.ValidAt, "invalid_at": edge.InvalidAt,
 		"status": edge.Status, "polarity": edge.Polarity, "source_type": edge.SourceType, "confidence": edge.Confidence,
 		"temporal": edge.Temporal, "singleton": edge.Singleton, "domain": edge.Domain, "supersedes": edge.Supersedes,
@@ -789,12 +848,37 @@ CONTENT {
 		"derived_from": edge.DerivedFrom, "attributes": edge.Attributes, "created_at": edge.CreatedAt,
 	})
 	if err == nil {
+		rows := UnwrapRows(written)
+		if len(rows) > 0 {
+			edge.Supersedes = asStringSlice(rows[0]["supersedes"])
+			stored := ParseEdge(rows[0])
+			edge.InvalidAt, edge.ExpiredAt, edge.SupersededBy, edge.Status = stored.InvalidAt, stored.ExpiredAt, stored.SupersededBy, stored.Status
+		}
+		known := map[string]bool{}
+		for _, e := range invalidated {
+			known[e.UUID] = true
+		}
+		missing := []string{}
+		for _, id := range edge.Supersedes {
+			if !known[id] {
+				missing = append(missing, id)
+			}
+		}
+		if len(missing) > 0 {
+			raw, e := s.Driver.Query(ctx, "SELECT * FROM relates_to WHERE uuid IN $ids;", map[string]any{"ids": missing})
+			if e != nil {
+				return EntityEdge{}, nil, e
+			}
+			for _, row := range UnwrapRows(raw) {
+				invalidated = append(invalidated, ParseEdge(row))
+			}
+		}
 		return edge, invalidated, nil
 	}
 	if !strings.Contains(err.Error(), "relates_to_fact_key_idx") {
 		return EntityEdge{}, nil, err
 	}
-	winner, qerr := s.findEquivalentEdge(ctx, groupID, subjUUID, objUUID, edgeName, factText, qhash)
+	winner, qerr := s.findEquivalentEdge(ctx, groupID, subjUUID, objUUID, edgeName, factText, qhash, equivalentAt)
 	if qerr != nil {
 		return EntityEdge{}, nil, qerr
 	}

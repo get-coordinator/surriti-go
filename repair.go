@@ -100,7 +100,7 @@ func InspectFactKeyCollisions(ctx context.Context, driver Queryer) ([]FactKeyCol
 	result, err := driver.Query(ctx, `
         SELECT group_id, fact_key, count() AS count
         FROM relates_to
-        WHERE fact_key != ""
+        WHERE fact_key != "" AND invalid_at IS NONE
         GROUP BY group_id, fact_key;
     `, nil)
 	if err != nil {
@@ -115,7 +115,7 @@ func InspectFactKeyCollisions(ctx context.Context, driver Queryer) ([]FactKeyCol
 		factKey := stringFromAny(group["fact_key"])
 		rows, err := driver.Query(ctx, `
             SELECT * FROM relates_to
-            WHERE group_id = $group_id AND fact_key = $fact_key
+            WHERE group_id = $group_id AND fact_key = $fact_key AND invalid_at IS NONE
             ORDER BY created_at ASC;
         `, map[string]any{"group_id": groupID, "fact_key": factKey})
 		if err != nil {

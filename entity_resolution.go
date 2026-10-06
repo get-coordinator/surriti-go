@@ -7,6 +7,8 @@ import (
 	"strings"
 )
 
+var aliasNumberRE = regexp.MustCompile(`[0-9]+(?:[.,][0-9]+)*`)
+
 var aliasPunctRE = regexp.MustCompile(`[^\p{L}\p{N}_\s'-]`)
 
 func NormalizeAlias(name string) string {
@@ -202,6 +204,9 @@ func ResolveEntityMentions(
 				idx := unresolved[local]
 				scored := []scoredEntity{}
 				for _, node := range entityOrder {
+					if !stringSlicesEqual(aliasNumberRE.FindAllString(mentions[idx].Name, -1), aliasNumberRE.FindAllString(node.Name, -1)) {
+						continue // Different numeric values are distinct entities, even when embeddings are close.
+					}
 					if len(node.NameEmbedding) == 0 {
 						continue
 					}

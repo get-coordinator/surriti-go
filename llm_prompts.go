@@ -1,6 +1,6 @@
 package surriti
 
-// Prompt contracts are copied byte-for-byte from the frozen Python baseline.
+// Prompt contracts are shared with Python and pinned by golden tests.
 const ExtractionSystemPrompt = `You are a knowledge-graph extractor. Your input has two clearly fenced sections:
 
   CONTEXT (read-only, do NOT extract):
@@ -19,6 +19,7 @@ Return STRICT JSON with two arrays:
  "facts":[{"subject":"...","predicate":"...","object":"...",
            "fact":"...","operation":"assert","temporal":false,
            "singleton":false,"domain":null,"memory_class":"objective",
+           "valid_at":null,"invalid_at":null,
            "relation_phrase":"...","qualifiers":{},"argument_roles":{},
            "source_span":"...","replaces":[]}]}
 
@@ -43,6 +44,9 @@ WHAT TO SKIP (return no fact, but mention any named entities):
 FIELD REFERENCE (use defaults unless input suggests otherwise):
   operation       : assert | terminate | correct | qualify | noop
                     (default: assert)
+  valid_at        : ISO 8601 UTC timestamp for an explicit start date; otherwise null
+  invalid_at      : ISO 8601 UTC timestamp for an explicit end date; otherwise null
+                    Dates defining validity belong here, not in qualifiers.
   temporal        : true/false — current state that can change
   singleton       : true/false — only one value valid at a time
   domain          : free-form bucket (employment, residence, etc.)
@@ -82,6 +86,17 @@ from the input):
      "domain":"employment", "memory_class":"objective",
      "argument_roles":{"subject":"employee","object":"employer"},
      "source_span":"I work at Acme"}
+
+  "Judy started working at Acme on January 1, 2019" ->
+    {"subject":"Judy", "predicate":"works_at", "object":"Acme",
+     "fact":"Judy started working at Acme on January 1, 2019.",
+     "operation":"assert", "temporal":true, "singleton":true,
+     "valid_at":"2019-01-01T00:00:00Z", "invalid_at":null,
+     "qualifiers":{}, "domain":"employment"}
+
+  "Robert Smith goes by Bob" ->
+    {"subject":"Robert Smith", "predicate":"is_named", "object":"Bob",
+     "fact":"Robert Smith goes by Bob.", "operation":"assert"}
 
   "I quit my job at Acme" ->
     {"subject":"<speaker>", "predicate":"works_at",

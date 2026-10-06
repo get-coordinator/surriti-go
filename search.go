@@ -106,9 +106,14 @@ func VectorSearchEdges(ctx context.Context, driver Queryer, queryEmbedding []flo
 		where += " AND uuid IN $allowed_edge_uuids"
 	}
 	if onlyValid {
-		where += ` AND status = "active" AND (invalid_at IS NONE OR invalid_at > time::now()) AND (expired_at IS NONE OR expired_at > time::now())`
+		where += ` AND status = "active" AND (valid_at IS NONE OR valid_at <= time::now()) AND (invalid_at IS NONE OR invalid_at > time::now()) AND (expired_at IS NONE OR expired_at > time::now())`
 	}
-	q := fmt.Sprintf("SELECT * FROM relates_to\n%s\n AND fact_embedding <|%d,40|> $vec\nLIMIT %d;", where, limit, limit)
+	q := fmt.Sprintf("SELECT *, vector::distance::knn() AS distance FROM relates_to\n%s\n AND fact_embedding <|%d,%d|> $vec\nORDER BY distance ASC\nLIMIT %d;", where, limit, max(40, limit), limit)
+	// The global ANN index can omit the best authorized/tenant-local match.
+	// Rank the indexed scope exactly; keep ANN for unrestricted retrieval.
+	if groupID != nil || allowedEdgeUUIDs != nil {
+		q = fmt.Sprintf("SELECT *, (1 - vector::similarity::cosine(fact_embedding, $vec)) AS distance FROM relates_to %s ORDER BY distance ASC LIMIT %d;", where, limit)
+	}
 	rows, err := driver.Query(ctx, q, params)
 	if err != nil {
 		return nil, err
@@ -127,7 +132,7 @@ func FulltextSearchEdges(ctx context.Context, driver Queryer, query string, grou
 		where += " AND uuid IN $allowed_edge_uuids"
 	}
 	if onlyValid {
-		where += ` AND status = "active" AND (invalid_at IS NONE OR invalid_at > time::now()) AND (expired_at IS NONE OR expired_at > time::now())`
+		where += ` AND status = "active" AND (valid_at IS NONE OR valid_at <= time::now()) AND (invalid_at IS NONE OR invalid_at > time::now()) AND (expired_at IS NONE OR expired_at > time::now())`
 	}
 	q := fmt.Sprintf("SELECT *, search::score(1) AS score FROM relates_to %s ORDER BY score DESC LIMIT %d;", where, limit)
 	rows, err := driver.Query(ctx, q, params)
@@ -386,7 +391,10 @@ func VectorSearchNodes(ctx context.Context, driver Queryer, queryEmbedding []flo
 		where += " AND group_id = $group_id"
 		params["group_id"] = *groupID
 	}
-	q := fmt.Sprintf("SELECT * FROM entity %s AND name_embedding <|%d,40|> $vec LIMIT %d;", where, limit, limit)
+	q := fmt.Sprintf("SELECT *, vector::distance::knn() AS distance FROM entity %s AND name_embedding <|%d,%d|> $vec ORDER BY distance ASC LIMIT %d;", where, limit, max(40, limit), limit)
+	if groupID != nil {
+		q = fmt.Sprintf("SELECT *, (1 - vector::similarity::cosine(name_embedding, $vec)) AS distance FROM entity %s ORDER BY distance ASC LIMIT %d;", where, limit)
+	}
 	rows, err := driver.Query(ctx, q, params)
 	if err != nil {
 		return nil, err
@@ -429,7 +437,10 @@ func VectorSearchCommunities(ctx context.Context, driver Queryer, queryEmbedding
 		where += " AND group_id = $group_id"
 		params["group_id"] = *groupID
 	}
-	q := fmt.Sprintf("SELECT * FROM community %s AND name_embedding <|%d,40|> $vec LIMIT %d;", where, limit, limit)
+	q := fmt.Sprintf("SELECT *, vector::distance::knn() AS distance FROM community %s AND name_embedding <|%d,%d|> $vec ORDER BY distance ASC LIMIT %d;", where, limit, max(40, limit), limit)
+	if groupID != nil {
+		q = fmt.Sprintf("SELECT *, (1 - vector::similarity::cosine(name_embedding, $vec)) AS distance FROM community %s ORDER BY distance ASC LIMIT %d;", where, limit)
+	}
 	rows, err := driver.Query(ctx, q, params)
 	if err != nil {
 		return nil, err

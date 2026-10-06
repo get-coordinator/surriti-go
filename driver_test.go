@@ -373,3 +373,17 @@ func TestClosePreventsStaleRequestReopeningDriver(t *testing.T) {
 	}
 	_ = d.Close(ctx)
 }
+
+func TestDefaultDriverConnectionFailureDoesNotPanic(t *testing.T) {
+	cfg := DefaultDriverConfig()
+	cfg.URL = "unsupported://invalid"
+	driver, err := NewDefaultSurrealDriver(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := driver.Connect(ctx); err == nil {
+		t.Fatal("expected unsupported endpoint error")
+	}
+}

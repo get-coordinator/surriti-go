@@ -1,14 +1,13 @@
 package surriti
 
 import (
-	"golang.org/x/text/cases"
 	"sort"
 	"strings"
+
+	"golang.org/x/text/cases"
 )
 
-func trim(s string) string                   { return strings.TrimSpace(s) }
-func lowerTrim(s string) string              { return strings.ToLower(strings.TrimSpace(s)) }
-func join(parts []string, sep string) string { return strings.Join(parts, sep) }
+func lowerTrim(s string) string { return strings.ToLower(strings.TrimSpace(s)) }
 
 // Python entity keys use full Unicode case folding (ß == ss, ς == σ).
 // Casers may own mutable transformer state, so each call owns its caser.

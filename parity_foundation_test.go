@@ -130,7 +130,7 @@ func TestEpisodeMentionsRerankParity(t *testing.T) {
 		{"uuid": "two", "episodes": []string{"a", "b"}},
 	}
 	got := EpisodeMentionsRerank(rows, 2)
-	if asString(got[0]["uuid"]) != "three" || asString(got[1]["uuid"]) != "two" {
+	if stringFromAny(got[0]["uuid"]) != "three" || stringFromAny(got[1]["uuid"]) != "two" {
 		t.Fatalf("order=%v", got)
 	}
 }
@@ -157,7 +157,7 @@ func TestStrongCueResurrectsSilentMemory(t *testing.T) {
 	d := &retrievalParityDriver{}
 	g := "g"
 	row := ResurrectSilentMemory(context.Background(), d, []float64{1, 0}, &g, .8, nil, nil)
-	if row == nil || asString(row["status"]) != "active" || row["_memory_resurrected"] != true {
+	if row == nil || stringFromAny(row["status"]) != "active" || row["_memory_resurrected"] != true {
 		t.Fatalf("row=%v", row)
 	}
 	if len(d.updated) != 1 || d.updated[0] != "sleeping" {

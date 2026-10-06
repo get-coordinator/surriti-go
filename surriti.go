@@ -31,6 +31,8 @@ type Surriti struct {
 	lifecycle          sync.Mutex
 	bgMu               sync.Mutex
 	bgWG               sync.WaitGroup
+	frameMu            sync.Mutex
+	savedFrames        map[string]RelationFrame
 	closed             bool
 	cognitionScheduler *CognitionScheduler
 }
@@ -140,12 +142,13 @@ func (s *Surriti) Connect(ctx context.Context) (*Surriti, error) {
 			return nil, err
 		}
 	}
-	if schema, ok := s.Driver.(interface{ InitSchema(context.Context) error }); ok {
-		if err := schema.InitSchema(ctx); err != nil {
-			return nil, err
-		}
+	if err := s.BuildIndicesAndConstraints(ctx); err != nil {
+		return nil, err
 	}
 
+	if err := s.loadFrames(ctx); err != nil {
+		return nil, err
+	}
 	s.bgMu.Lock()
 	if s.closed {
 		s.bgCtx, s.bgCancel = context.WithCancel(context.Background())
@@ -170,9 +173,7 @@ func (s *Surriti) Close(ctx context.Context) error {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
 	s.bgMu.Lock()
-	if !s.closed {
-		s.closed = true
-	}
+	s.closed = true
 	scheduler := s.cognitionScheduler
 	s.cognitionScheduler = nil
 	s.bgMu.Unlock()
@@ -184,21 +185,7 @@ func (s *Surriti) Close(ctx context.Context) error {
 		scheduler.Shutdown(ctx)
 	}
 
-	done := make(chan struct{})
-	go func() {
-		s.bgWG.Wait()
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-ctx.Done():
-		s.bgCancel()
-		<-done
-	case <-time.After(2 * time.Second):
-		s.bgCancel()
-		<-done
-	}
-	s.bgCancel()
+	drainBackground(ctx, &s.bgWG, s.bgCancel)
 	if c, ok := s.Driver.(interface{ Close(context.Context) error }); ok {
 		return c.Close(ctx)
 	}
@@ -231,4 +218,20 @@ func (s *Surriti) CognitionScheduler() *CognitionScheduler {
 	s.bgMu.Lock()
 	defer s.bgMu.Unlock()
 	return s.cognitionScheduler
+}
+
+// Callers must prevent new work before draining. Cancellation requests a stop;
+// waiting afterward guarantees no worker uses the driver after it is closed.
+func drainBackground(ctx context.Context, workers *sync.WaitGroup, cancel context.CancelFunc) {
+	done := make(chan struct{})
+	go func() { workers.Wait(); close(done) }()
+	timer := time.NewTimer(2 * time.Second)
+	defer timer.Stop()
+	select {
+	case <-done:
+	case <-ctx.Done():
+	case <-timer.C:
+	}
+	cancel()
+	<-done
 }

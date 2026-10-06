@@ -1,6 +1,9 @@
 package surriti
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 func utcNow() time.Time { return time.Now().UTC() }
 
@@ -196,9 +199,9 @@ func NewEntityEdge(sourceUUID, targetUUID, predicate, groupID string) EntityEdge
 type CommunityEdge struct{ EdgeBase }
 
 func MakeFactKey(groupID, subjectUUID, predicate, objectUUID, qualifierHash string) string {
-	parts := []string{trim(groupID), trim(subjectUUID), lowerTrim(predicate), trim(objectUUID)}
+	parts := []string{strings.TrimSpace(groupID), strings.TrimSpace(subjectUUID), lowerTrim(predicate), strings.TrimSpace(objectUUID)}
 	if qualifierHash != "" {
 		parts = append(parts, qualifierHash)
 	}
-	return join(parts, "::")
+	return strings.Join(parts, "::")
 }

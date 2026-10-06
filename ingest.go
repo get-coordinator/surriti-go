@@ -298,6 +298,20 @@ func (s *Surriti) AddEpisode(ctx context.Context, req AddEpisodeRequest) (AddEpi
 		return AddEpisodeResults{}, err
 	}
 
+	// Facts are authoritative for endpoint names; providers may omit a value from entities.
+	knownNames := map[string]bool{}
+	for _, entity := range extraction.Entities {
+		knownNames[entityNameKey(entity.Name)] = true
+	}
+	for _, fact := range extraction.Facts {
+		for _, name := range []string{fact.Subject, fact.Object} {
+			key := entityNameKey(name)
+			if key != "" && !knownNames[key] {
+				extraction.Entities = append(extraction.Entities, NewExtractedEntity(name))
+				knownNames[key] = true
+			}
+		}
+	}
 	if speakerEntity != nil && req.SpeakerID != nil {
 		keys := map[string]struct{}{entityNameKey(*req.SpeakerID): {}}
 		if req.SpeakerName != nil && *req.SpeakerName != "" {
@@ -389,15 +403,28 @@ func (s *Surriti) AddEpisode(ctx context.Context, req AddEpisodeRequest) (AddEpi
 	if err != nil {
 		return AddEpisodeResults{}, err
 	}
-	entityByKey := map[string]EntityNode{}
 	nameToEntity := map[string]EntityNode{}
 	for _, entity := range entities {
-		entityByKey[entityNameKey(entity.Name)] = entity
 		nameToEntity[entity.Name] = entity
 	}
+	// upsertEntities returns one canonical node per distinct input name, in input order.
+	// Preserve the mention-to-canonical mapping even when their names differ.
+	mentionNodes := map[string]EntityNode{}
+	next := 0
 	for _, ext := range extraction.Entities {
-		if stored, ok := entityByKey[entityNameKey(ext.Name)]; ok {
-			nameToEntity[ext.Name] = stored
+		key := entityNameKey(ext.Name)
+		if key == "" {
+			continue
+		}
+		node, ok := mentionNodes[key]
+		if !ok && next < len(entities) {
+			node = entities[next]
+			next++
+			mentionNodes[key] = node
+			ok = true
+		}
+		if ok {
+			nameToEntity[ext.Name] = node
 		}
 	}
 
@@ -630,7 +657,7 @@ func (s *Surriti) AddEpisodeBulk(ctx context.Context, episodes []RawEpisode, gro
 	agg := AddBulkEpisodeResults{Episodes: []EpisodicNode{}, EpisodicEdges: []EpisodicEdge{}, Nodes: []EntityNode{}, Edges: []EntityEdge{}, InvalidatedEdges: []EntityEdge{}, Communities: []CommunityNode{}, CommunityEdges: []CommunityEdge{}}
 	for _, ep := range episodes {
 		g := groupID
-		if ep.GroupID != nil {
+		if ep.GroupID != nil && *ep.GroupID != "" {
 			g = *ep.GroupID
 		}
 		res, err := s.AddEpisode(ctx, AddEpisodeRequest{Name: ep.Name, EpisodeBody: ep.Content, Source: ep.Source, SourceDescription: ep.SourceDescription, ReferenceTime: ep.ReferenceTime, GroupID: g, UUID: ep.UUID})

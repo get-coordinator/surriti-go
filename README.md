@@ -117,7 +117,7 @@ go test -race ./...
 
 For live checks, set `SURRITI_INTEGRATION=1` and the usual `SURRITI_SURREAL_URL`, `SURRITI_SURREAL_NS`, `SURRITI_SURREAL_USER`, and `SURRITI_SURREAL_PASS`. Tests always create and remove a uniquely named test database; they never use `SURRITI_SURREAL_DB`. The database account needs permission to create/remove those test databases.
 
-To include the cross-language check, set `SURRITI_PYTHON_REFERENCE` to the directory containing the frozen Python `surriti` package and install its dependencies in the `python3` environment. Run the same `go test -race ./...` command. No hosted provider credentials are required: live database tests use deterministic providers.
+To include the cross-language check, set `SURRITI_PYTHON_REFERENCE` to the directory containing the matching Python `surriti` package and install its dependencies in the `python3` environment. Run the same `go test -race ./...` command. No hosted provider credentials are required: live database tests use deterministic providers.
 
 OpenAI-compatible and Anthropic adapters accept an injected `HTTPClient` for transport/timeout configuration and `MaxRetries` (constructors default to two). Custom base URLs stay entirely within adapters. Configure the embedding dimension consistently in the driver and embedder.
 

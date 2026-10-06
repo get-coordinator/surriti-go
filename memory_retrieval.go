@@ -50,7 +50,7 @@ func LexicalMatchCount(row map[string]any, queryTokens []string) int {
 	if len(queryTokens) == 0 {
 		return 0
 	}
-	haystack := strings.ToLower(strings.Join([]string{asString(row["fact"]), asString(row["name"]), asString(row["canonical_name"])}, " "))
+	haystack := strings.ToLower(strings.Join([]string{stringFromAny(row["fact"]), stringFromAny(row["name"]), stringFromAny(row["canonical_name"])}, " "))
 	set := map[string]struct{}{}
 	for _, t := range memoryTokenRE.FindAllString(haystack, -1) {
 		set[t] = struct{}{}
@@ -110,7 +110,7 @@ func AdmitCandidates(candidates []map[string]any, query string, queryEmbedding [
 }
 
 func stripRecordID(v any) string {
-	s := asString(v)
+	s := stringFromAny(v)
 	if s == "" {
 		return ""
 	}
@@ -144,7 +144,7 @@ func ApplySpreadingActivation(candidates []map[string]any, fused map[string]floa
 	byID := map[string]map[string]struct{}{}
 	fan := map[string]int{}
 	for _, row := range candidates {
-		uid := asString(row["uuid"])
+		uid := stringFromAny(row["uuid"])
 		if uid == "" {
 			continue
 		}
@@ -156,25 +156,25 @@ func ApplySpreadingActivation(candidates []map[string]any, fused map[string]floa
 	}
 	seeds := make([]map[string]any, 0, len(candidates))
 	for _, r := range candidates {
-		if asString(r["uuid"]) != "" {
+		if stringFromAny(r["uuid"]) != "" {
 			seeds = append(seeds, r)
 		}
 	}
 	sort.SliceStable(seeds, func(i, j int) bool {
-		return fused[asString(seeds[i]["uuid"])] > fused[asString(seeds[j]["uuid"])]
+		return fused[stringFromAny(seeds[i]["uuid"])] > fused[stringFromAny(seeds[j]["uuid"])]
 	})
 	if len(seeds) > seedCount {
 		seeds = seeds[:seedCount]
 	}
 	for _, row := range candidates {
-		uid := asString(row["uuid"])
+		uid := stringFromAny(row["uuid"])
 		if uid == "" {
 			continue
 		}
 		boost := 0.0
 		ids := byID[uid]
 		for _, seed := range seeds {
-			sid := asString(seed["uuid"])
+			sid := stringFromAny(seed["uuid"])
 			if sid == "" || sid == uid {
 				continue
 			}
