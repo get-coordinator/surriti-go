@@ -28,10 +28,10 @@ func (s *Surriti) Search_(ctx context.Context, req AdvancedSearchRequest) (Searc
 		return SearchResults{}, fmt.Errorf("%w: multi-group search is not yet supported; pass one group", ErrConfig)
 	}
 	cfg := DefaultSearchConfig()
-	if req.SearchConfig != nil {
-		cfg = *req.SearchConfig
-	} else if req.Config != nil {
+	if req.Config != nil {
 		cfg = *req.Config
+	} else if req.SearchConfig != nil {
+		cfg = *req.SearchConfig
 	} else {
 		cfg.IncludeNodes = true
 		cfg.IncludeEpisodes = true
@@ -62,21 +62,31 @@ func (s *Surriti) Search_(ctx context.Context, req AdvancedSearchRequest) (Searc
 	var err error
 	if req.Query != "" {
 		embedding, err = s.Embedder.Create(ctx, req.Query)
-		if err != nil { return SearchResults{}, err }
+		if err != nil {
+			return SearchResults{}, err
+		}
 	}
 	result, err := HybridSearch(ctx, driver, req.Query, embedding, groupID, &cfg, nil, nil)
-	if err != nil { return SearchResults{}, err }
+	if err != nil {
+		return SearchResults{}, err
+	}
 	if cfg.IncludeNodes {
 		result.Nodes, err = SearchNodes(ctx, driver, req.Query, embedding, groupID, cfg.Limit, cfg.Filters)
-		if err != nil { return SearchResults{}, err }
+		if err != nil {
+			return SearchResults{}, err
+		}
 	}
 	if cfg.IncludeEpisodes {
 		result.Episodes, err = SearchEpisodes(ctx, driver, req.Query, groupID, cfg.Limit)
-		if err != nil { return SearchResults{}, err }
+		if err != nil {
+			return SearchResults{}, err
+		}
 	}
 	if cfg.IncludeCommunities {
 		result.Communities, err = SearchCommunities(ctx, driver, req.Query, embedding, groupID, cfg.Limit)
-		if err != nil { return SearchResults{}, err }
+		if err != nil {
+			return SearchResults{}, err
+		}
 	}
 	return result, nil
 }
@@ -110,16 +120,32 @@ func (s *Surriti) SearchCompat(ctx context.Context, req SearchCompatRequest) (Se
 		return SearchResults{}, fmt.Errorf("%w: multi-group search is not yet supported; pass one group", ErrConfig)
 	}
 	cfg := DefaultSearchConfig()
-	if req.Config != nil { cfg = *req.Config }
-	if req.NumResults != 0 { cfg.Limit = req.NumResults }
-	if req.Limit != 0 { cfg.Limit = req.Limit }
-	if req.CenterNodeUUID != nil { cfg.FocalUUID = req.CenterNodeUUID }
-	if req.SearchFilter != nil { cfg.Filters = req.SearchFilter }
-	if cfg.CrossEncoder == nil { cfg.CrossEncoder = s.CrossEncoder }
-	if req.OnlyValid != nil { cfg.OnlyValid = *req.OnlyValid }
+	if req.Config != nil {
+		cfg = *req.Config
+	}
+	if req.NumResults != 0 {
+		cfg.Limit = req.NumResults
+	}
+	if req.Limit != 0 {
+		cfg.Limit = req.Limit
+	}
+	if req.CenterNodeUUID != nil {
+		cfg.FocalUUID = req.CenterNodeUUID
+	}
+	if req.SearchFilter != nil {
+		cfg.Filters = req.SearchFilter
+	}
+	if cfg.CrossEncoder == nil {
+		cfg.CrossEncoder = s.CrossEncoder
+	}
+	if req.OnlyValid != nil {
+		cfg.OnlyValid = *req.OnlyValid
+	}
 	switch Reranker(strings.TrimSpace(req.RerankStrategy)) {
 	case RerankRRF, RerankMMR, RerankCrossEncoder, RerankNodeDistance, RerankEpisodeMentions:
-		if req.RerankStrategy != "" { cfg.Reranker = Reranker(req.RerankStrategy) }
+		if req.RerankStrategy != "" {
+			cfg.Reranker = Reranker(req.RerankStrategy)
+		}
 	}
 	switch req.Depth {
 	case "fast":
@@ -130,12 +156,25 @@ func (s *Surriti) SearchCompat(ctx context.Context, req SearchCompatRequest) (Se
 		cfg.Limit = 50
 	}
 	var groupID *string
-	if req.GroupID != nil { groupID = req.GroupID } else if len(req.GroupIDs)==1 { g:=req.GroupIDs[0]; groupID=&g }
-	driver:=req.Driver;if driver==nil{driver=s.Driver}
+	if req.GroupID != nil {
+		groupID = req.GroupID
+	} else if len(req.GroupIDs) == 1 {
+		g := req.GroupIDs[0]
+		groupID = &g
+	}
+	driver := req.Driver
+	if driver == nil {
+		driver = s.Driver
+	}
 	var embedding []float64
 	var err error
-	if req.Query!=""{embedding,err=s.Embedder.Create(ctx,req.Query);if err!=nil{return SearchResults{},err}}
-	return HybridSearch(ctx,driver,req.Query,embedding,groupID,&cfg,nil,req.AllowedEdgeUUIDs)
+	if req.Query != "" {
+		embedding, err = s.Embedder.Create(ctx, req.Query)
+		if err != nil {
+			return SearchResults{}, err
+		}
+	}
+	return HybridSearch(ctx, driver, req.Query, embedding, groupID, &cfg, nil, req.AllowedEdgeUUIDs)
 }
 
 // CreateLoggedTask is the Go fire-and-forget equivalent of Python's

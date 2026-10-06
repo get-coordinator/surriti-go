@@ -24,12 +24,16 @@ func FindSimilarEdges(
 	g := groupID
 	if factEmbedding != nil {
 		hits, err := VectorSearchEdges(ctx, driver, factEmbedding, &g, limit, false, nil)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		rows = append(rows, hits...)
 	}
 	if fact != "" {
 		hits, err := FulltextSearchEdges(ctx, driver, fact, &g, limit, false, nil)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		rows = append(rows, hits...)
 	}
 
@@ -48,7 +52,9 @@ func FindSimilarEdges(
 			"SELECT * FROM relates_to WHERE "+strings.Join(conditions, " AND ")+" LIMIT $limit;",
 			params,
 		)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		rows = UnwrapRows(result)
 	}
 
@@ -60,7 +66,9 @@ WHERE group_id = $group_id
     AND status = "active"
     AND invalid_at IS NONE
 LIMIT $limit;`, map[string]any{"group_id": groupID, "obj": *coObjectUUID, "limit": limit * 2})
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		rows = append(rows, UnwrapRows(result)...)
 	} else if coSubjectUUID != nil {
 		result, err := driver.Query(ctx, `
@@ -70,7 +78,9 @@ WHERE group_id = $group_id
     AND status = "active"
     AND invalid_at IS NONE
 LIMIT $limit;`, map[string]any{"group_id": groupID, "sub": *coSubjectUUID, "limit": limit * 2})
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		rows = append(rows, UnwrapRows(result)...)
 	}
 
@@ -81,7 +91,9 @@ LIMIT $limit;`, map[string]any{"group_id": groupID, "sub": *coSubjectUUID, "limi
 		if uid == "" {
 			uid = stripRecordID(row["id"])
 		}
-		if _, ok := seen[uid]; ok { continue }
+		if _, ok := seen[uid]; ok {
+			continue
+		}
 		seen[uid] = struct{}{}
 		e := ParseEdge(row)
 		if onlyActive && (e.Status != "active" || e.InvalidAt != nil) {
@@ -102,9 +114,9 @@ SET invalid_at = $invalid_at, expired_at = $expired_at,
     status = "superseded", superseded_by = $superseded_by
 WHERE uuid IN $uuids AND (invalid_at IS NONE OR invalid_at > $invalid_at);
 `, map[string]any{
-		"uuids": edgeUUIDs,
-		"invalid_at": invalidAt,
-		"expired_at": utcNow(),
+		"uuids":         edgeUUIDs,
+		"invalid_at":    invalidAt,
+		"expired_at":    utcNow(),
 		"superseded_by": supersededBy,
 	})
 	return err
@@ -128,15 +140,17 @@ func ResolveContradictions(
 		similarityLimit = 10
 	}
 	edges, err := FindSimilarEdges(ctx, driver, newFact, newFactEmbedding, groupID, similarityLimit, newSubjectUUID, newObjectUUID, true)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	filtered := make([]EntityEdge, 0, len(edges))
 	for _, e := range edges {
 		if newEdgeUUID != nil && e.UUID == *newEdgeUUID {
 			continue
 		}
-		// New extracted claims are objective at this stage. Subjective beliefs
-		// are promoted later by cognition and must not invalidate objective truth.
-		if e.IsBelief || e.MemoryClass == "belief" {
+		// Preserve Python's OR-based compatibility check for legacy rows
+		// with inconsistent is_belief and memory_class fields.
+		if e.IsBelief && e.MemoryClass == "belief" {
 			continue
 		}
 		filtered = append(filtered, e)
@@ -157,22 +171,32 @@ func ResolveContradictions(
 				UUID: e.UUID, Subject: e.SourceNodeUUID, Predicate: e.Name,
 				Object: e.TargetNodeUUID, Fact: e.Fact, Domain: e.Domain,
 			}
-			if e.ValidAt != nil { v := e.ValidAt.Format(time.RFC3339Nano); c.ValidAt = &v }
-			if e.InvalidAt != nil { v := e.InvalidAt.Format(time.RFC3339Nano); c.InvalidAt = &v }
+			if e.ValidAt != nil {
+				v := e.ValidAt.Format(time.RFC3339Nano)
+				c.ValidAt = &v
+			}
+			if e.InvalidAt != nil {
+				v := e.InvalidAt.Format(time.RFC3339Nano)
+				c.InvalidAt = &v
+			}
 			structured = append(structured, c)
 		}
 	}
 	indices, err := llm.FindContradictions(ctx, ContradictionRequest{
 		NewFact: newFact, ExistingFacts: facts, Candidates: structured, NewFactStruct: newFactStruct,
 	})
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	if len(indices) == 0 {
 		return []EntityEdge{}, nil
 	}
 	invalidated := make([]EntityEdge, 0, len(indices))
 	uuids := make([]string, 0, len(indices))
 	for _, idx := range indices {
-		if idx < 0 || idx >= len(edges) { continue }
+		if idx < 0 || idx >= len(edges) {
+			continue
+		}
 		invalidated = append(invalidated, edges[idx])
 		uuids = append(uuids, edges[idx].UUID)
 	}

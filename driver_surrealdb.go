@@ -2,6 +2,7 @@ package surriti
 
 import (
 	"context"
+	"encoding/json"
 	"reflect"
 	"time"
 
@@ -45,7 +46,7 @@ func (c *officialSurrealClient) Query(ctx context.Context, surql string, variabl
 	if results == nil || len(*results) == 0 {
 		return []any{}, nil
 	}
-	return (*results)[len(*results)-1].Result, nil
+	return normalizeSurrealResult((*results)[len(*results)-1].Result), nil
 }
 
 func (c *officialSurrealClient) Close(ctx context.Context) error {
@@ -63,7 +64,6 @@ func NewSurrealDriverFromEnv() (*SurrealDriver, error) {
 	}
 	return NewDefaultSurrealDriver(cfg)
 }
-
 
 func normalizeSurrealVariables(variables map[string]any) map[string]any {
 	if variables == nil {
@@ -84,8 +84,20 @@ func normalizeSurrealValue(v any) any {
 	if v == nil {
 		return models.None
 	}
-	switch v.(type) {
-	case time.Time, models.CustomNil:
+	if n, ok := v.(json.Number); ok {
+		if i, err := n.Int64(); err == nil {
+			return i
+		}
+		if f, err := n.Float64(); err == nil {
+			return f
+		}
+	}
+	switch x := v.(type) {
+	case time.Time:
+		return &models.CustomDateTime{Time: x}
+	case models.CustomDateTime:
+		return &x
+	case models.CustomNil:
 		return v
 	}
 	rv := reflect.ValueOf(v)
@@ -112,4 +124,33 @@ func normalizeSurrealValue(v any) any {
 		}
 	}
 	return v
+}
+
+// Keep transport-specific datetimes/NONE at the adapter boundary. A plain
+// time.Time CBOR encoding truncates fractional seconds with the SDK defaults;
+// the Surreal tag preserves the timestamp and decodes back to Go time.Time.
+func normalizeSurrealResult(v any) any {
+	switch x := v.(type) {
+	case models.CustomDateTime:
+		return x.Time
+	case *models.CustomDateTime:
+		if x != nil {
+			return x.Time
+		}
+		return nil
+	case models.CustomNil:
+		return nil
+	case []any:
+		for i := range x {
+			x[i] = normalizeSurrealResult(x[i])
+		}
+		return x
+	case map[string]any:
+		for k := range x {
+			x[k] = normalizeSurrealResult(x[k])
+		}
+		return x
+	default:
+		return v
+	}
 }

@@ -1,6 +1,7 @@
 package surriti
 
 import (
+	"encoding/json"
 	"reflect"
 	"time"
 )
@@ -221,7 +222,11 @@ func evalProperty(row map[string]any, pf PropertyFilter) bool {
 			}
 		}
 	}
-	// Python treats unknown operators as a no-op constraint.
+	// Known comparisons between incompatible types fail, as in Python.
+	switch op {
+	case OpGT, OpLT, OpGTE, OpLTE:
+		return false
+	}
 	return true
 }
 
@@ -289,6 +294,9 @@ func numericEqual(a, b any) bool {
 }
 func toFloat(v any) (float64, bool) {
 	switch x := v.(type) {
+	case json.Number:
+		f, err := x.Float64()
+		return f, err == nil
 	case int:
 		return float64(x), true
 	case int8:

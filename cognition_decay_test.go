@@ -22,7 +22,9 @@ func TestActivationPrefersRecent(t *testing.T) {
 	old.Attributes = RecordActivationEvent(nil, now.Add(-30*24*time.Hour), 1, 8)
 	recent := NewEntityEdge("a", "b", "x", "g")
 	recent.Attributes = RecordActivationEvent(nil, now.Add(-time.Hour), 1, 8)
-	if Activation(recent, now) <= Activation(old, now) { t.Fatal("recent presentation should activate more strongly") }
+	if Activation(recent, now) <= Activation(old, now) {
+		t.Fatal("recent presentation should activate more strongly")
+	}
 }
 
 func TestRecallPresentationWeakerThanReassertion(t *testing.T) {
@@ -31,7 +33,9 @@ func TestRecallPresentationWeakerThanReassertion(t *testing.T) {
 	weak.Attributes = RecordActivationEvent(nil, now.Add(-time.Hour), ActivationRecallWeight, 8)
 	strong := NewEntityEdge("a", "b", "x", "g")
 	strong.Attributes = RecordActivationEvent(nil, now.Add(-time.Hour), ActivationReinforcementWeight, 8)
-	if Activation(weak, now) >= Activation(strong, now) { t.Fatal("recall should be weaker") }
+	if Activation(weak, now) >= Activation(strong, now) {
+		t.Fatal("recall should be weaker")
+	}
 }
 
 func TestRecordActivationCapsExactWindowButRetainsMass(t *testing.T) {
@@ -41,7 +45,11 @@ func TestRecordActivationCapsExactWindowButRetainsMass(t *testing.T) {
 		attrs = RecordActivationEvent(attrs, base.Add(time.Duration(i)*time.Hour), 1, 8)
 	}
 	events := asAnySlice(attrs[activationEventsKey])
-	if len(events) != 8 { t.Fatalf("events=%d", len(events)) }
+	if len(events) != 8 {
+		t.Fatalf("events=%d", len(events))
+	}
 	total, _ := toFloat(attrs[activationTotalWeightKey])
-	if total != 12 { t.Fatalf("total=%v", total) }
+	if total != 12 {
+		t.Fatalf("total=%v", total)
+	}
 }

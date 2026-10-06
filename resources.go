@@ -22,14 +22,14 @@ func NewResource(libraryItemID, title string) Resource {
 	now := utcNow()
 	return Resource{
 		LibraryItemID: libraryItemID,
-		Title: title,
-		Kind: "document",
-		Relationship: "reference_material",
-		Topics: []string{},
-		Available: true,
-		UUID: newUUID(),
-		CreatedAt: now,
-		UpdatedAt: now,
+		Title:         title,
+		Kind:          "document",
+		Relationship:  "reference_material",
+		Topics:        []string{},
+		Available:     true,
+		UUID:          newUUID(),
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 }
 
@@ -43,16 +43,16 @@ func (s *ResourceStore) Upsert(ctx context.Context, resource Resource, groupID s
 	now := utcNow()
 	payload := map[string]any{
 		"library_item_id": resource.LibraryItemID,
-		"title": resource.Title,
-		"kind": resource.Kind,
-		"relationship": resource.Relationship,
-		"summary": resource.Summary,
-		"topics": append([]string(nil), resource.Topics...),
-		"available": resource.Available,
-		"uuid": resource.UUID,
-		"created_at": resource.CreatedAt,
-		"updated_at": now,
-		"group_id": groupID,
+		"title":           resource.Title,
+		"kind":            resource.Kind,
+		"relationship":    resource.Relationship,
+		"summary":         resource.Summary,
+		"topics":          append([]string(nil), resource.Topics...),
+		"available":       resource.Available,
+		"uuid":            resource.UUID,
+		"created_at":      resource.CreatedAt,
+		"updated_at":      now,
+		"group_id":        groupID,
 	}
 	rows, err := s.driver.Query(ctx,
 		"SELECT uuid, created_at FROM resource WHERE group_id = $group_id AND library_item_id = $library_item_id LIMIT 1;",

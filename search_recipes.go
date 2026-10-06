@@ -4,7 +4,9 @@ package surriti
 // not shared pointers, so mutating one configuration never changes another.
 func EdgeHybridSearchRRF(limit int) SearchConfig {
 	cfg := DefaultSearchConfig()
-	if limit != 0 { cfg.Limit = limit }
+	if limit != 0 {
+		cfg.Limit = limit
+	}
 	cfg.Reranker = RerankRRF
 	return cfg
 }
@@ -37,30 +39,42 @@ func EdgeHybridSearchNodeDistance(focalUUID string, limit int) SearchConfig {
 
 func CombinedHybridSearch(r Reranker, limit int) SearchConfig {
 	cfg := DefaultSearchConfig()
-	if limit != 0 { cfg.Limit = limit }
+	if limit != 0 {
+		cfg.Limit = limit
+	}
 	cfg.Reranker = r
 	cfg.IncludeNodes = true
 	cfg.IncludeEpisodes = true
 	cfg.IncludeCommunities = true
-	if r == RerankMMR { cfg.MMRLambda = 0.5 }
+	if r == RerankMMR {
+		cfg.MMRLambda = 0.5
+	}
 	return cfg
 }
 
 func NodeHybridSearch(r Reranker, limit int) SearchConfig {
 	cfg := DefaultSearchConfig()
-	if limit != 0 { cfg.Limit = limit }
+	if limit != 0 {
+		cfg.Limit = limit
+	}
 	cfg.Reranker = r
 	cfg.IncludeNodes = true
-	if r == RerankMMR { cfg.MMRLambda = 0.5 }
+	if r == RerankMMR {
+		cfg.MMRLambda = 0.5
+	}
 	return cfg
 }
 
 func CommunityHybridSearch(r Reranker, limit int) SearchConfig {
 	cfg := DefaultSearchConfig()
-	if limit != 0 { cfg.Limit = limit }
+	if limit != 0 {
+		cfg.Limit = limit
+	}
 	cfg.Reranker = r
 	cfg.IncludeCommunities = true
-	if r == RerankMMR { cfg.MMRLambda = 0.5 }
+	if r == RerankMMR {
+		cfg.MMRLambda = 0.5
+	}
 	return cfg
 }
 

@@ -1,8 +1,11 @@
-module github.com/milorddev/surriti-go
+module github.com/get-coordinator/surriti-go
 
 go 1.23
 
-require github.com/surrealdb/surrealdb.go v1.7.0
+require (
+	github.com/surrealdb/surrealdb.go v1.7.0
+	golang.org/x/text v0.21.0
+)
 
 require (
 	github.com/fxamacker/cbor/v2 v2.9.2 // indirect

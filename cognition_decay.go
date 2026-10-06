@@ -7,30 +7,30 @@ import (
 )
 
 var defaultHalfLifeDays = map[string]float64{
-	"episodic": 30,
-	"reinforced": 90,
-	"persistent": 365,
+	"episodic":     30,
+	"reinforced":   90,
+	"persistent":   365,
 	"consolidated": math.Inf(1),
 }
 
 const (
-	DefaultDecayPointsPerDay = 0.01
-	DefaultRecallBoost = 0.04
-	DefaultReinforcementBoost = 0.03
-	MaxRecallBoost = 0.2
-	MaxReinforcementBoost = 0.25
-	ActivationDecayD = 0.5
-	ActivationRecallWeight = 0.15
+	DefaultDecayPointsPerDay      = 0.01
+	DefaultRecallBoost            = 0.04
+	DefaultReinforcementBoost     = 0.03
+	MaxRecallBoost                = 0.2
+	MaxReinforcementBoost         = 0.25
+	ActivationDecayD              = 0.5
+	ActivationRecallWeight        = 0.15
 	ActivationReinforcementWeight = 1.0
-	ActivationMaxExactEvents = 8
-	ActivationSilenceLine = -3.5
-	ActivationScale = 0.8
+	ActivationMaxExactEvents      = 8
+	ActivationSilenceLine         = -3.5
+	ActivationScale               = 0.8
 )
 
 const (
-	activationEventsKey = "activation_events"
+	activationEventsKey      = "activation_events"
 	activationTotalWeightKey = "activation_total_weight"
-	activationCreatedKey = "activation_created_at"
+	activationCreatedKey     = "activation_created_at"
 )
 
 var ProtectedMemoryClasses = map[string]struct{}{
@@ -178,10 +178,16 @@ func activationState(edge EntityEdge) ([]activationEvent, float64, *float64) {
 		switch x := item.(type) {
 		case map[string]any:
 			tv = x["ts"]
-			if tv == nil { tv = x["time"] }
-			if tv == nil { tv = x["at"] }
+			if tv == nil {
+				tv = x["time"]
+			}
+			if tv == nil {
+				tv = x["at"]
+			}
 			wv = x["weight"]
-			if wv == nil { wv = 1.0 }
+			if wv == nil {
+				wv = 1.0
+			}
 		case []any:
 			if len(x) >= 2 {
 				tv = x[0]
@@ -223,8 +229,12 @@ func activationState(edge EntityEdge) ([]activationEvent, float64, *float64) {
 	if len(events) > 0 {
 		total, _ := toFloat(attrs[activationTotalWeightKey])
 		sum := 0.0
-		for _, e := range events { sum += e.weight }
-		if total < sum { total = sum }
+		for _, e := range events {
+			sum += e.weight
+		}
+		if total < sum {
+			total = sum
+		}
 		return events, total, created
 	}
 
@@ -238,14 +248,18 @@ func activationState(edge EntityEdge) ([]activationEvent, float64, *float64) {
 	}
 	if !reinforced.IsZero() {
 		count := edge.ReinforcementCount
-		if count < 1 { count = 1 }
+		if count < 1 {
+			count = 1
+		}
 		events = append(events, activationEvent{float64(reinforced.UnixNano()) / 1e9, float64(count) * ActivationReinforcementWeight})
 	}
 	if edge.LastRecalledAt != nil && edge.RecallCount > 0 {
 		events = append(events, activationEvent{float64(edge.LastRecalledAt.UnixNano()) / 1e9, float64(edge.RecallCount) * ActivationRecallWeight})
 	}
 	total := 0.0
-	for _, e := range events { total += e.weight }
+	for _, e := range events {
+		total += e.weight
+	}
 	if len(events) > ActivationMaxExactEvents {
 		events = events[len(events)-ActivationMaxExactEvents:]
 	}
@@ -264,9 +278,13 @@ func ActrBaseLevel(raw [][]float64, totalWeight *float64, createdTS *float64, no
 
 func actrBaseLevelEvents(events []activationEvent, totalWeight *float64, createdTS *float64, nowTS *float64, d float64) float64 {
 	now := float64(time.Now().UTC().UnixNano()) / 1e9
-	if nowTS != nil { now = *nowTS }
+	if nowTS != nil {
+		now = *nowTS
+	}
 	sortActivation(events)
-	if len(events) > ActivationMaxExactEvents { events = events[len(events)-ActivationMaxExactEvents:] }
+	if len(events) > ActivationMaxExactEvents {
+		events = events[len(events)-ActivationMaxExactEvents:]
+	}
 	s := 0.0
 	exact := 0.0
 	for _, e := range events {
@@ -276,19 +294,25 @@ func actrBaseLevelEvents(events []activationEvent, totalWeight *float64, created
 		exact += w
 	}
 	total := exact
-	if totalWeight != nil { total = *totalWeight }
+	if totalWeight != nil {
+		total = *totalWeight
+	}
 	historical := math.Max(total-exact, 0)
 	if historical > 0 && createdTS != nil {
 		tlife := math.Max((now-*createdTS)/3600, .01)
 		told := .01
-		if len(events) > 0 { told = math.Max((now-events[0].ts)/3600, .01) }
+		if len(events) > 0 {
+			told = math.Max((now-events[0].ts)/3600, .01)
+		}
 		if tlife > told+1e-9 && d != 1 {
-			s += historical * ((math.Pow(tlife, 1-d) - math.Pow(told, 1-d)) / ((1-d) * (tlife - told)))
+			s += historical * ((math.Pow(tlife, 1-d) - math.Pow(told, 1-d)) / ((1 - d) * (tlife - told)))
 		} else {
 			s += historical * math.Pow(tlife, -d)
 		}
 	}
-	if s > 0 { return math.Log(s) }
+	if s > 0 {
+		return math.Log(s)
+	}
 	return -10
 }
 
@@ -301,32 +325,48 @@ func sortActivation(events []activationEvent) {
 }
 
 func Activation(edge EntityEdge, now time.Time) float64 {
-	if now.IsZero() { now = time.Now().UTC() }
+	if now.IsZero() {
+		now = time.Now().UTC()
+	}
 	events, total, created := activationState(edge)
 	raw := make([][]float64, len(events))
-	for i, e := range events { raw[i] = []float64{e.ts, e.weight} }
+	for i, e := range events {
+		raw[i] = []float64{e.ts, e.weight}
+	}
 	n := float64(now.UnixNano()) / 1e9
 	return ActrBaseLevel(raw, &total, created, &n, ActivationDecayD)
 }
 
 func ActivationVitality(edge EntityEdge, now time.Time) float64 {
-	if IsDecayProtected(edge) { return 1 }
+	if IsDecayProtected(edge) {
+		return 1
+	}
 	b := Activation(edge, now)
 	x := (b - ActivationSilenceLine) / ActivationScale
-	if x <= -30 { return 0 }
-	if x >= 30 { return 1 }
+	if x <= -30 {
+		return 0
+	}
+	if x >= 30 {
+		return 1
+	}
 	return 1 / (1 + math.Exp(-x))
 }
 
 func EffectiveConfidence(edge EntityEdge, now time.Time, halfLifeOverrides map[string]float64) float64 {
 	_ = halfLifeOverrides
 	base := clamp01(edge.Confidence)
-	if IsDecayProtected(edge) { return base }
+	if IsDecayProtected(edge) {
+		return base
+	}
 	return clamp01(base * ActivationVitality(edge, now))
 }
 
 func clamp01(v float64) float64 {
-	if v < 0 { return 0 }
-	if v > 1 { return 1 }
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
 	return v
 }

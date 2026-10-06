@@ -6,11 +6,40 @@ This document is the implementation contract for the parity phase. "Ported" mean
 
 ## Port status
 
-**Runtime source parity is complete against the frozen Python baseline.** The Go tree now contains counterparts for the production facade, graph persistence and temporal semantics, entity resolution, search/recall, participant references, resources, profiles, read models, memory packs, production LLM/embedder adapters, and the full cognition pipeline.
+The source audit maps every production module and public facade capability to a Go implementation below. The Go runtime keeps the frozen schema, compatibility backfills, temporal operations, memory references, retrieval pipeline, and cognition pass order. This inventory is a source coverage statement; it is not a claim that every possible input has been differentially certified.
 
-The Python `testing.py` in-memory fake driver is intentionally not part of runtime parity; it is development/test infrastructure, and the Go port uses native Go fakes/tests instead. `py.typed` is Python packaging metadata and has no Go equivalent.
+Python's `testing.py`, `py.typed`, packaging, and Python-only development scripts are excluded. Go uses native test doubles and the production SurrealDB SDK.
 
-Live differential certification is deliberately separate from source-port completion. Real SurrealDB/provider validation, environment-specific debugging, and differential fixture runs can continue after this merge without changing the parity contract.
+## Corrections from the final audit
+
+- Corrected the SDK datetime boundary: plain CBOR timestamps lost fractional seconds and returned SDK wrapper types that core decoding did not recognize. Queries now preserve timestamp precision and recursively normalize returned datetimes/NONE.
+- Preserved integer/float distinctions and large JSON integers for qualifier hashing, extraction, and pack imports. Python float notation, ASCII escaping, Unicode case folding, and contradiction index parsing now match the reference contracts.
+- Restored exact extraction/contradiction prompts; kept cognition prompt constants byte-equivalent. Preserved first-seen ordering for tied search results, affect labels, trait candidates, goal speakers, self-model patterns, and graph read projections.
+- Unified basic search with its compatibility path. Explicit zero search tuning is retained. Restricted silent-memory resurrection before candidate retrieval when participant authorization is present.
+- Corrected scheduler debounce/retry behavior, shutdown ownership of manual passes, context-aware group serialization, and restart recovery. Self episodes now notify cognition. Failed steps log their underlying errors.
+- Prevented a stale request from reopening a driver after `Close`; preserved explicit reconnect and partial-connection cleanup.
+- Preserved structured row arrays in read models, profile summary Unicode boundaries, and trait evidence-index semantics.
+- Fixed vector export, JSONL flush/close error handling, missing ZIP checksum targets, unsafe archive paths, and colliding export temporary files. Imports retain deterministic IDs and the baseline merge model.
+- Consolidated adapter HTTP handling with bounded transient retries, cancellation, checked request encoding/response reads, response size limits, and optional fail-soft synthesis.
+- Corrected the module path; grouped participant operations, state reads, options, and prompt contracts into cohesive files. Removed duplicate basic-search and scheduler execution paths and redundant min/max helpers. Applied standard Go formatting throughout the formerly compressed source.
+
+## Executed validation
+
+- `go fmt ./...`, `go vet ./...`, `go test ./...`, and `go test -race ./...`.
+- Isolated in-memory SurrealDB **3.0.5**, using unique disposable databases: schema initialization, singleton replacement, repeated episode ingestion, timestamp precision, participant recall/isolation/grant/revoke/forget, self-episode scheduling, a default cognition pass and processing markers, pack export/import and repeated merge with embeddings.
+- Python writes a timestamped fact; Go reads it, resolves its Unicode-equivalent subject and replaces its singleton state; Python verifies current and historical results. Python exports a pack which Go imports and exports; Python validates/imports that Go pack and checks active/history counts.
+- Frozen Python golden fixtures for schema DDL, extraction/classification/contradiction prompts, and qualifier hashes. All four cognition prompt constants were also compared byte-for-byte against Python.
+- Targeted lifecycle/reconnect, scheduler shutdown/retry, parser, archive safety, ordering, read-model shape, and HTTP retry/cancellation tests.
+
+No application/production database was modified for validation. Hosted provider responses, production-volume behavior, extended outage/restart soak tests, and exhaustive differential fixtures remain deployment validation work.
+
+## Preserved baseline behavior and safety boundaries
+
+Legacy equivalent-edge lookup and pack merge identity remain the frozen Python behavior, including their fallback matching rules; they were not redesigned into a new migration model. Explicit repair APIs remain available for existing fact-key collisions. Python's placeholder self-model goals result remains empty where the reference does so.
+
+Go-specific safety mechanisms include context-aware synchronization, refusing unsafe ZIP members, bounded HTTP response reads, unique atomic-export temporary files, and applying participant authorization to silent-memory resurrection. These do not add tables or alter stored fact identity. Background shutdown assumes injected capabilities honor their contexts. Provider clients remain application-owned, as in the Python facade.
+
+The adapter retry defaults follow the upstream [OpenAI Python SDK](https://github.com/openai/openai-python#retries) and [Anthropic Python SDK](https://github.com/anthropics/anthropic-sdk-python#retries); transport timing need not be byte-identical across languages. The core remains provider-neutral.
 
 ## Non-negotiable invariants
 
@@ -34,8 +63,8 @@ The Python package contains the runtime modules inventoried below, plus Python-o
 
 | Python | Go target | Required behavior |
 |---|---|---|
-| `__init__.py` | `surriti.go`, public types/interfaces | Preserve the public capability surface and version metadata. |
-| `graphiti.py` | `surriti.go`, `ingest.go`, `graph_write.go`, `graph_api.go`, `recall.go`, `communities.go`, `diagnostics.go`, `self_awareness.go`, `facade_compat.go` | Main facade/orchestration. Do not port as one giant file; preserve every observable method and invariant. |
+| `__init__.py` | `surriti.go`, `options.go`, public types/interfaces | Preserve the public capability surface and version metadata. |
+| `graphiti.py` | `surriti.go`, `ingest.go`, `graph_write.go`, `graph_api.go`, `graph_state.go`, `participant_memory.go`, `recall.go`, `communities.go`, `diagnostics.go`, `self_awareness.go`, `facade_compat.go` | Main facade/orchestration. Do not port as one giant file; preserve every observable method and invariant. |
 | `driver.py` | `driver.go` | Connection lifecycle, env config, context cancellation, stale-connection recovery, transaction-conflict retry, concurrency-safe reconnect, schema init and clear. |
 | `errors.py` | `errors.go` | Stable typed/sentinel error categories with wrapping. |
 | `_logging.py` | `logging.go` | Opt-in logging surface; no duplicate default handlers. |
@@ -70,7 +99,7 @@ Managed SurrealDB tables:
 | Python | Go target | Required behavior |
 |---|---|---|
 | `llm.py` | `llm.go` | Provider-neutral LLM interface plus extracted entity/fact/contradiction structures and scripted/dummy test implementations. |
-| `llm_clients.py` | `llm_clients.go` | Preserve prompt/output parsing semantics where adapters are supplied. Core library must not depend on a specific routing provider. |
+| `llm_clients.py` | `llm_clients.go`, `llm_prompts.go`, `provider_http.go` | Preserve prompt/output parsing semantics where adapters are supplied. Core library must not depend on a specific routing provider. |
 | `embedder.py` | `embedder.go` | Provider-neutral embedder interface, deterministic dummy embedder, batch behavior and cosine similarity. |
 | `rerankers.py` | `rerank.go` | Cross-encoder interface, dummy ranker, RRF, MMR, episode-mentions reranking. |
 
@@ -94,6 +123,7 @@ Core temporal behaviors that must be identical:
 - `assert`
 - `terminate`
 - `correct`
+- `qualify`
 - `noop`
 - singleton slot closing
 - assistant/tool/system source protection from user-truth replacement
@@ -238,138 +268,8 @@ Equivalent to Python `driver.py`:
 - different groups may run concurrently
 - restart recovers persisted-but-unprocessed episodes
 
-## Test-port matrix
+## Acceptance contract
 
-The Python suite currently exercises at least these groups:
+Changes to the frozen schema, persisted identity, prompt semantics, temporal lineage, visibility, or cognition ordering require a new parity review. A similarly named function alone is not evidence of equivalence. Keep the cross-language workflow runnable and extend focused fixtures when changing these contracts.
 
-- activation lifecycle: 6 tests
-- cognition E2E: 12
-- cognition unit/scheduler: 33
-- comprehensive integration: 38
-- cycle integration: 16
-- diagnostics: 10
-- driver reliability: 7
-- entity resolution: 4
-- family integration: 37
-- general integration: 57
-- live SurrealDB integration: 34
-- memory packs: 23
-- memory retrieval: 11
-- models: 7
-- fake-driver pipeline: 37
-- scripted prompts: 7
-- read models/resources: 2
-- recall/profiles: 4
-- relation frames: 22
-- repair: 4
-- resources: 2
-- restart preservation: 2
-- schema: 1
-- SDK surface: 14
-- unit extras/search/ranking: 31
-
-Total conventional tests inventoried: **421**.
-
-Do not translate assertions blindly. Each Go test should document the invariant it protects.
-
-## Implementation order
-
-### Gate 0 - freeze the reference
-
-- Record Python baseline commit.
-- No new Python behavior is silently folded into the Go port.
-- If Python main advances, explicitly rebase the parity document and rerun differential fixtures.
-
-### Gate 1 - foundations
-
-- public models
-- errors
-- provider interfaces
-- deterministic dummy/scripted providers
-- pure utilities
-- relation-frame pure helpers
-- search filters
-- cognition decay pure functions
-
-No database required.
-
-### Gate 2 - Surreal driver and exact schema
-
-- official SurrealDB Go SDK adapter
-- connection/reconnect/retry state machine
-- schema DDL
-- compatibility backfills
-- fact-key collision repair
-- integration harness against pinned SurrealDB 3.x
-
-This gate must be green before graph writes.
-
-### Gate 3 - canonical graph writes
-
-- episode/entity/alias persistence
-- entity resolution
-- mentions
-- fact insert/dedupe
-- temporal operations
-- relation frames
-- user identity
-- participant references
-
-### Gate 4 - retrieval
-
-- vector/full-text search
-- RRF/MMR/cross encoder
-- filters
-- admission
-- spreading activation
-- evidence snippets
-- resurrection
-- current/as-of reads
-- participant-scoped reads
-
-### Gate 5 - secondary features
-
-- profiles
-- resources
-- communities
-- read models
-- diagnostics
-- memory packs
-
-### Gate 6 - cognition
-
-Port the scheduler/runner first, then each pass independently. Preserve fail-soft semantics.
-
-### Gate 7 - differential certification
-
-Run the same deterministic fixture corpus through Python and Go against isolated databases, normalize nondeterministic timestamps/UUIDs where necessary, and compare:
-
-- entities
-- aliases
-- episodes
-- facts and temporal lineage
-- memory references
-- relation frames
-- search/recall ordering where deterministic
-- current/as-of state
-- memory-pack output
-- cognition outputs for deterministic/scripted LLM fixtures
-
-## Definition of parity complete
-
-### Runtime source port complete
-
-The source-port milestone is complete when every production behavior above has a Go implementation (or is explicitly documented as Python-only development/packaging infrastructure), persistent identity/schema contracts are preserved, and provider-specific concerns stay behind interfaces.
-
-### Differential certification complete
-
-Full environment certification is complete when:
-
-- the Go suite reproduces the Python invariants
-- all live SurrealDB integration tests pass under repeated runs
-- `go test -race ./...` passes
-- fuzz tests exist for parsers, fact repair, pack validation and malformed Surreal row decoding
-- cancellation/restart tests pass
-- differential fixtures pass
-- Python and Go can read/write the same supported database schema without migration forks
-- no vendor/provider dependency leaks into the core interfaces
+Use real integration behavior first, targeted regressions for dangerous invariants second, and static checks as supporting evidence. Full deployment certification also requires the actual embedding model/dimension, LLM endpoints, database access policy, load, and failure/recovery conditions used by the application.

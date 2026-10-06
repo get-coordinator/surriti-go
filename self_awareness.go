@@ -9,51 +9,114 @@ import (
 	"time"
 )
 
-func (s *Surriti) getEntityByName(ctx context.Context,name,groupID string)(*EntityNode,error){
-	raw,err:=s.Driver.Query(ctx,`
+func (s *Surriti) getEntityByName(ctx context.Context, name, groupID string) (*EntityNode, error) {
+	raw, err := s.Driver.Query(ctx, `
 SELECT * FROM entity
 WHERE group_id = $group_id AND name = $name
-LIMIT 1;`,map[string]any{"group_id":groupID,"name":name})
-	if err!=nil{return nil,err};rows:=UnwrapRows(raw);if len(rows)==0{return nil,nil};n:=ParseEntity(rows[0]);return &n,nil
+LIMIT 1;`, map[string]any{"group_id": groupID, "name": name})
+	if err != nil {
+		return nil, err
+	}
+	rows := UnwrapRows(raw)
+	if len(rows) == 0 {
+		return nil, nil
+	}
+	n := ParseEntity(rows[0])
+	return &n, nil
 }
 
-func (s *Surriti) AddSelfEpisode(ctx context.Context,episodeType EpisodeType,content any,groupID,name string,referenceTime *time.Time,sourceDescription string)(AddEpisodeResults,error){
-	switch episodeType{
-	case EpisodeSelfObservation,EpisodeSelfCorrection,EpisodeSelfSuccess,EpisodeSelfPattern:
-	default:return AddEpisodeResults{},fmt.Errorf("%w: invalid self episode type %q",ErrConfig,episodeType)
+func (s *Surriti) AddSelfEpisode(ctx context.Context, episodeType EpisodeType, content any, groupID, name string, referenceTime *time.Time, sourceDescription string) (AddEpisodeResults, error) {
+	switch episodeType {
+	case EpisodeSelfObservation, EpisodeSelfCorrection, EpisodeSelfSuccess, EpisodeSelfPattern:
+	default:
+		return AddEpisodeResults{}, fmt.Errorf("%w: invalid self episode type %q", ErrConfig, episodeType)
 	}
 	var text string
-	switch v:=content.(type){
-	case string:text=v
+	switch v := content.(type) {
+	case string:
+		text = v
 	default:
-		b,err:=json.Marshal(v);if err!=nil{return AddEpisodeResults{},err};text=string(b)
+		b, err := json.Marshal(v)
+		if err != nil {
+			return AddEpisodeResults{}, err
+		}
+		text = string(b)
 	}
-	if name==""{name="self_"+string(episodeType)}
-	if sourceDescription==""{sourceDescription="self_"+string(episodeType)}
-	ref:=utcNow();if referenceTime!=nil{ref=referenceTime.UTC()}
-	episode:=NewEpisodicNode(name,groupID);episode.Content=text;episode.Source=episodeType;episode.SourceDescription=sourceDescription;episode.ReferenceTime=ref
-	if err:=s.saveEpisode(ctx,episode);err!=nil{return AddEpisodeResults{},err}
-	extraction,err:=s.LLM.Extract(ctx,ExtractionRequest{
-		Content:text,GroupID:groupID,
-		CustomInstructions:"This is a SELF-REFERENTIAL episode about the AI assistant's own behavior, not about the user or the world. Extract facts about the assistant's behavior, patterns, or self-assessment. Do NOT extract facts about external entities or world knowledge.",
+	if name == "" {
+		name = "self_" + string(episodeType)
+	}
+	if sourceDescription == "" {
+		sourceDescription = "self_" + string(episodeType)
+	}
+	ref := utcNow()
+	if referenceTime != nil {
+		ref = referenceTime.UTC()
+	}
+	episode := NewEpisodicNode(name, groupID)
+	episode.Content = text
+	episode.Source = episodeType
+	episode.SourceDescription = sourceDescription
+	episode.ReferenceTime = ref
+	if err := s.saveEpisode(ctx, episode); err != nil {
+		return AddEpisodeResults{}, err
+	}
+	extraction, err := s.LLM.Extract(ctx, ExtractionRequest{
+		Content: text, GroupID: groupID,
+		CustomInstructions: "This is a SELF-REFERENTIAL episode about the AI assistant's own behavior, not about the user or the world. Extract facts about the assistant's behavior, patterns, or self-assessment. Do NOT extract facts about external entities or world knowledge.",
 	})
-	if err!=nil{return AddEpisodeResults{},err}
-	selfName:="assistant";if groupID!=""{selfName="assistant_"+groupID}
-	inputs:=[]ExtractedEntity{{Name:selfName,Summary:"Self-referential entity for group "+func()string{if groupID==""{return "default"};return groupID}(),Labels:[]string{"SelfEntity","Assistant"}}}
-	inputs=append(inputs,extraction.Entities...)
-	for _,fact:=range extraction.Facts{if fact.Object!=""{inputs=append(inputs,ExtractedEntity{Name:fact.Object,Labels:[]string{"Entity"}})}}
-	entities,err:=s.upsertEntities(ctx,inputs,groupID,&episode.UUID,text);if err!=nil{return AddEpisodeResults{},err}
-	byKey:=map[string]EntityNode{};for _,e:=range entities{byKey[entityNameKey(e.Name)]=e}
-	selfEntity,ok:=byKey[entityNameKey(selfName)];if !ok{return AddEpisodeResults{},fmt.Errorf("%w: self entity not persisted",ErrNotFound)}
-	edges:=[]EntityEdge{}
-	for _,fact:=range extraction.Facts{
-		obj,ok:=byKey[entityNameKey(fact.Object)];if !ok{continue}
-		fact.Subject=selfName
-		edge,invalidated,err:=s.addFactEdge(ctx,fact,selfEntity,obj,&episode,groupID,"assistant");if err!=nil{return AddEpisodeResults{},err}
-		edges=append(edges,edge);edges=append(edges,invalidated...)
+	if err != nil {
+		return AddEpisodeResults{}, err
 	}
-	mentions,err:=s.linkMentions(ctx,episode,[]EntityNode{selfEntity},groupID);if err!=nil{return AddEpisodeResults{},err}
-	return AddEpisodeResults{Episode:episode,EpisodicEdges:mentions,Nodes:entities,Edges:edges,InvalidatedEdges:[]EntityEdge{},Communities:[]CommunityNode{},CommunityEdges:[]CommunityEdge{}},nil
+	selfName := "assistant"
+	if groupID != "" {
+		selfName = "assistant_" + groupID
+	}
+	inputs := []ExtractedEntity{{Name: selfName, Summary: "Self-referential entity for group " + func() string {
+		if groupID == "" {
+			return "default"
+		}
+		return groupID
+	}(), Labels: []string{"SelfEntity", "Assistant"}}}
+	inputs = append(inputs, extraction.Entities...)
+	for _, fact := range extraction.Facts {
+		if fact.Object != "" {
+			inputs = append(inputs, ExtractedEntity{Name: fact.Object, Labels: []string{"Entity"}})
+		}
+	}
+	entities, err := s.upsertEntities(ctx, inputs, groupID, &episode.UUID, text)
+	if err != nil {
+		return AddEpisodeResults{}, err
+	}
+	byKey := map[string]EntityNode{}
+	for _, e := range entities {
+		byKey[entityNameKey(e.Name)] = e
+	}
+	selfEntity, ok := byKey[entityNameKey(selfName)]
+	if !ok {
+		return AddEpisodeResults{}, fmt.Errorf("%w: self entity not persisted", ErrNotFound)
+	}
+	edges := []EntityEdge{}
+	for _, fact := range extraction.Facts {
+		obj, ok := byKey[entityNameKey(fact.Object)]
+		if !ok {
+			continue
+		}
+		fact.Subject = selfName
+		edge, invalidated, err := s.addFactEdge(ctx, fact, selfEntity, obj, &episode, groupID, "assistant")
+		if err != nil {
+			return AddEpisodeResults{}, err
+		}
+		edges = append(edges, edge)
+		edges = append(edges, invalidated...)
+	}
+	mentions, err := s.linkMentions(ctx, episode, []EntityNode{selfEntity}, groupID)
+	if err != nil {
+		return AddEpisodeResults{}, err
+	}
+	if scheduler := s.CognitionScheduler(); scheduler != nil && scheduler.Enabled() {
+		scheduler.Notify(groupID, episode.UUID)
+	}
+	return AddEpisodeResults{Episode: episode, EpisodicEdges: mentions, Nodes: entities, Edges: edges, InvalidatedEdges: []EntityEdge{}, Communities: []CommunityNode{}, CommunityEdges: []CommunityEdge{}}, nil
 }
 
 type SelfModelOptions struct {
@@ -68,9 +131,15 @@ func selfModelFlags(options []SelfModelOptions) (bool, bool, bool) {
 		return traits, patterns, beliefs
 	}
 	o := options[0]
-	if o.IncludeTraits != nil { traits = *o.IncludeTraits }
-	if o.IncludePatterns != nil { patterns = *o.IncludePatterns }
-	if o.IncludeBeliefs != nil { beliefs = *o.IncludeBeliefs }
+	if o.IncludeTraits != nil {
+		traits = *o.IncludeTraits
+	}
+	if o.IncludePatterns != nil {
+		patterns = *o.IncludePatterns
+	}
+	if o.IncludeBeliefs != nil {
+		beliefs = *o.IncludeBeliefs
+	}
 	return traits, patterns, beliefs
 }
 
@@ -78,16 +147,20 @@ func (s *Surriti) GetSelfModel(ctx context.Context, groupID string, options ...S
 	includeTraits, includePatterns, includeBeliefs := selfModelFlags(options)
 	result := map[string]any{
 		"group_id": groupID,
-		"traits": []map[string]any{},
+		"traits":   []map[string]any{},
 		"patterns": []map[string]any{},
-		"beliefs": []map[string]any{},
-		"goals": []map[string]any{},
-		"summary": "",
+		"beliefs":  []map[string]any{},
+		"goals":    []map[string]any{},
+		"summary":  "",
 	}
 	selfName := "assistant"
-	if groupID != "" { selfName = "assistant_" + groupID }
+	if groupID != "" {
+		selfName = "assistant_" + groupID
+	}
 	selfEntity, err := s.getEntityByName(ctx, selfName, groupID)
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 
 	traits := []map[string]any{}
 	if includeTraits && selfEntity != nil {
@@ -98,10 +171,14 @@ WHERE group_id = $group_id
  AND name = "has_trait"
  AND status = "active"
  AND invalid_at IS NONE;`, map[string]any{"group_id": groupID, "src": selfEntity.UUID})
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		for _, row := range UnwrapRows(raw) {
 			conf := 1.0
-			if v, ok := toFloat(row["confidence"]); ok { conf = v }
+			if v, ok := toFloat(row["confidence"]); ok {
+				conf = v
+			}
 			traits = append(traits, map[string]any{"fact": stringFromAny(row["fact"]), "confidence": conf})
 		}
 	}
@@ -116,16 +193,22 @@ WHERE group_id = $group_id
  AND source CONTAINS 'self_'
 ORDER BY created_at DESC
 LIMIT 50;`, map[string]any{"group_id": groupID})
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		epRows := UnwrapRows(rawEpisodes)
 		patterns := map[string]map[string]any{}
+		patternOrder := []string{}
 		for _, row := range epRows {
 			p := stringFromAny(row["interaction_pattern"])
-			if p == "" { continue }
+			if p == "" {
+				continue
+			}
 			entry := patterns[p]
 			if entry == nil {
 				entry = map[string]any{"pattern": p, "count": 0, "source": "episode"}
 				patterns[p] = entry
+				patternOrder = append(patternOrder, p)
 			}
 			entry["count"] = intFromAny(entry["count"]) + 1
 		}
@@ -137,21 +220,35 @@ WHERE group_id = $group_id
  AND name = "has_pattern"
  AND status = "active"
  AND invalid_at IS NONE;`, map[string]any{"group_id": groupID, "src": selfEntity.UUID})
-			if err != nil { return nil, err }
+			if err != nil {
+				return nil, err
+			}
 			for _, row := range UnwrapRows(raw) {
 				fact := stringFromAny(row["fact"])
 				p := strings.TrimSpace(strings.TrimPrefix(fact, "has_pattern:"))
-				if p == "" { p = fact }
-				if p == "" { continue }
+				if p == "" {
+					p = fact
+				}
+				if p == "" {
+					continue
+				}
 				conf := 1.0
-				if v, ok := toFloat(row["confidence"]); ok { conf = v }
+				if v, ok := toFloat(row["confidence"]); ok {
+					conf = v
+				}
+				if _, exists := patterns[p]; !exists {
+					patternOrder = append(patternOrder, p)
+				}
 				patterns[p] = map[string]any{"pattern": p, "count": 1, "confidence": conf, "source": "self_model"}
 			}
 		}
-		for _, entry := range patterns {
+		for _, p := range patternOrder {
+			entry := patterns[p]
 			if _, ok := entry["confidence"]; !ok {
 				den := len(epRows)
-				if den < 1 { den = 1 }
+				if den < 1 {
+					den = 1
+				}
 				entry["confidence"] = float64(intFromAny(entry["count"])) / float64(den)
 			}
 			patternList = append(patternList, entry)
@@ -172,7 +269,9 @@ WHERE group_id = $group_id
  AND is_belief = true
  AND status = "active"
  AND invalid_at IS NONE;`, map[string]any{"group_id": groupID, "src": selfEntity.UUID})
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		for _, row := range UnwrapRows(raw) {
 			beliefs = append(beliefs, map[string]any{"fact": stringFromAny(row["fact"]), "source_type": "self"})
 		}
@@ -185,10 +284,14 @@ WHERE group_id = $group_id
 	countRaw, err := s.Driver.Query(ctx, `
 SELECT count() as cnt FROM episode
 WHERE group_id = $group_id AND source CONTAINS 'self_';`, map[string]any{"group_id": groupID})
-	if err != nil { return nil, err }
+	if err != nil {
+		return nil, err
+	}
 	count := 0
 	rows := UnwrapRows(countRaw)
-	if len(rows) > 0 { count = intFromAny(rows[0]["cnt"]) }
+	if len(rows) > 0 {
+		count = intFromAny(rows[0]["cnt"])
+	}
 	result["summary"] = fmt.Sprintf(
 		"Self-model based on %d self-episodes. %d traits identified. %d interaction patterns detected.",
 		count, len(traits), len(patternList),

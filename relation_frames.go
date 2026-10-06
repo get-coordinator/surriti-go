@@ -87,12 +87,16 @@ func QualifierHash(qualifiers map[string]any) string {
 // separators=(",", ":"), default=str). Exact cross-language output matters
 // because the bytes are part of persistent slot/fact identity.
 func pythonCanonicalJSON(v any) (string, error) {
-	if v == nil { return "null", nil }
+	if v == nil {
+		return "null", nil
+	}
 	switch x := v.(type) {
 	case string:
 		return pythonJSONString(x), nil
 	case bool:
-		if x { return "true", nil }
+		if x {
+			return "true", nil
+		}
 		return "false", nil
 	case int:
 		return strconv.FormatInt(int64(x), 10), nil
@@ -121,27 +125,37 @@ func pythonCanonicalJSON(v any) (string, error) {
 	case json.Number:
 		if strings.ContainsAny(string(x), ".eE") {
 			f, err := x.Float64()
-			if err != nil { return "", err }
+			if err != nil {
+				return "", err
+			}
 			return pythonFloat(f), nil
 		}
 		return string(x), nil
 	case map[string]any:
 		keys := make([]string, 0, len(x))
-		for k := range x { keys = append(keys, k) }
+		for k := range x {
+			keys = append(keys, k)
+		}
 		sort.Strings(keys)
 		parts := make([]string, 0, len(keys))
 		for _, k := range keys {
 			value, err := pythonCanonicalJSON(x[k])
-			if err != nil { return "", err }
+			if err != nil {
+				return "", err
+			}
 			parts = append(parts, pythonJSONString(k)+":"+value)
 		}
 		return "{" + strings.Join(parts, ",") + "}", nil
 	}
 
 	rv := reflect.ValueOf(v)
-	if !rv.IsValid() { return "null", nil }
+	if !rv.IsValid() {
+		return "null", nil
+	}
 	if rv.Kind() == reflect.Pointer {
-		if rv.IsNil() { return "null", nil }
+		if rv.IsNil() {
+			return "null", nil
+		}
 		return pythonCanonicalJSON(rv.Elem().Interface())
 	}
 	if rv.Kind() == reflect.Map && rv.Type().Key().Kind() == reflect.String {
@@ -150,7 +164,9 @@ func pythonCanonicalJSON(v any) (string, error) {
 		parts := make([]string, 0, len(keys))
 		for _, key := range keys {
 			value, err := pythonCanonicalJSON(rv.MapIndex(key).Interface())
-			if err != nil { return "", err }
+			if err != nil {
+				return "", err
+			}
 			parts = append(parts, pythonJSONString(key.String())+":"+value)
 		}
 		return "{" + strings.Join(parts, ",") + "}", nil
@@ -159,7 +175,9 @@ func pythonCanonicalJSON(v any) (string, error) {
 		parts := make([]string, rv.Len())
 		for i := 0; i < rv.Len(); i++ {
 			value, err := pythonCanonicalJSON(rv.Index(i).Interface())
-			if err != nil { return "", err }
+			if err != nil {
+				return "", err
+			}
 			parts[i] = value
 		}
 		return "[" + strings.Join(parts, ",") + "]", nil
@@ -168,11 +186,25 @@ func pythonCanonicalJSON(v any) (string, error) {
 }
 
 func pythonFloat(v float64) string {
-	if math.IsNaN(v) { return "NaN" }
-	if math.IsInf(v, 1) { return "Infinity" }
-	if math.IsInf(v, -1) { return "-Infinity" }
-	s := strconv.FormatFloat(v, 'g', -1, 64)
-	if !strings.ContainsAny(s, ".eE") { s += ".0" }
+	if math.IsNaN(v) {
+		return "NaN"
+	}
+	if math.IsInf(v, 1) {
+		return "Infinity"
+	}
+	if math.IsInf(v, -1) {
+		return "-Infinity"
+	}
+	// CPython uses fixed notation for exponents -4 through 15. Go's 'g'
+	// switches to scientific notation at 6, changing persisted qualifier hashes.
+	format := byte('g')
+	if v == 0 || (math.Abs(v) >= 1e-4 && math.Abs(v) < 1e16) {
+		format = 'f'
+	}
+	s := strconv.FormatFloat(v, format, -1, 64)
+	if !strings.ContainsAny(s, ".eE") {
+		s += ".0"
+	}
 	return s
 }
 
@@ -198,7 +230,7 @@ func pythonJSONString(s string) string {
 		default:
 			if r < 0x20 {
 				fmt.Fprintf(&b, `\u%04x`, r)
-			} else if r <= 0x7f {
+			} else if r < 0x7f {
 				b.WriteRune(r)
 			} else if r <= 0xffff {
 				fmt.Fprintf(&b, `\u%04x`, r)

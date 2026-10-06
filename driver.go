@@ -133,7 +133,6 @@ func (m *contextMutex) Unlock() { m.token <- struct{}{} }
 
 type clientHandle struct {
 	client DBClient
-	gen    uint64
 }
 
 // SurrealDriver owns a single authenticated, selected SurrealDB connection
@@ -144,7 +143,8 @@ type SurrealDriver struct {
 
 	stateMu sync.RWMutex
 	current *clientHandle
-	nextGen uint64
+	// Protected by connectMu. Only an explicit Connect may reopen after Close.
+	closed bool
 
 	connectMu   *contextMutex
 	reconnectMu *contextMutex
@@ -223,8 +223,7 @@ func (d *SurrealDriver) setCurrent(h *clientHandle) {
 
 func (d *SurrealDriver) nextHandle(client DBClient) *clientHandle {
 	d.stateMu.Lock()
-	d.nextGen++
-	h := &clientHandle{client: client, gen: d.nextGen}
+	h := &clientHandle{client: client}
 	d.current = h
 	d.stateMu.Unlock()
 	return h
@@ -241,6 +240,7 @@ func (d *SurrealDriver) Connect(ctx context.Context) error {
 	if d.snapshot() != nil {
 		return nil
 	}
+	d.closed = false
 	_, err := d.connectLocked(ctx)
 	return err
 }
@@ -251,6 +251,7 @@ func (d *SurrealDriver) Connect(ctx context.Context) error {
 func (d *SurrealDriver) connectLocked(ctx context.Context) (*clientHandle, error) {
 	client, err := d.factory.Open(ctx, d.cfg.URL)
 	if err != nil {
+		cleanupClose(client)
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
@@ -304,6 +305,7 @@ func (d *SurrealDriver) Close(ctx context.Context) error {
 	}
 	defer d.connectMu.Unlock()
 
+	d.closed = true
 	d.stateMu.Lock()
 	h := d.current
 	d.current = nil
@@ -432,6 +434,9 @@ func (d *SurrealDriver) reconnectIfCurrent(ctx context.Context, failed *clientHa
 	}
 	defer d.connectMu.Unlock()
 
+	if d.closed {
+		return fmt.Errorf("%w: driver closed during reconnect", ErrConnection)
+	}
 	// Re-check after obtaining the connect lock.
 	current = d.snapshot()
 	if current != nil && failed != nil && current != failed {

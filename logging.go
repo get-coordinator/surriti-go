@@ -19,8 +19,8 @@ const (
 )
 
 var (
-	logMu sync.Mutex
-	packageLogger = log.New(io.Discard, "surriti ", log.LstdFlags)
+	logMu           sync.Mutex
+	packageLogger   = log.New(io.Discard, "surriti ", log.LstdFlags)
 	packageLogLevel = LogInfo
 )
 

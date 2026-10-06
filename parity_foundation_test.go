@@ -84,9 +84,9 @@ func TestDummyLLMExtractionParity(t *testing.T) {
 func TestDummyLLMStructuredContradictionParity(t *testing.T) {
 	f := NewExtractedFact("Alice", "works_at", "Globex")
 	got := DummyFindContradictions(ContradictionRequest{
-		NewFact: "Alice no longer works at Acme; she moved to Globex.",
+		NewFact:       "Alice no longer works at Acme; she moved to Globex.",
 		ExistingFacts: []string{"Alice works at Acme."},
-		Candidates: []ContradictionCandidate{{Subject: "Alice", Object: "Acme", Fact: "Alice works at Acme."}},
+		Candidates:    []ContradictionCandidate{{Subject: "Alice", Object: "Acme", Fact: "Alice works at Acme."}},
 		NewFactStruct: &f,
 	})
 	if len(got) != 1 || got[0] != 0 {
@@ -96,8 +96,8 @@ func TestDummyLLMStructuredContradictionParity(t *testing.T) {
 
 func TestScriptedLLMQueueAndContradictions(t *testing.T) {
 	resp := ScriptedResponse{
-		Entities: []ExtractedEntity{NewExtractedEntity("Alice")},
-		Facts: []ExtractedFact{NewExtractedFact("Alice", "works_at", "Acme")},
+		Entities:       []ExtractedEntity{NewExtractedEntity("Alice")},
+		Facts:          []ExtractedFact{NewExtractedFact("Alice", "works_at", "Acme")},
 		Contradictions: []int{0},
 	}
 	llm := NewScriptedLLMClient([]ScriptedResponse{resp})

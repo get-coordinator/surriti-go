@@ -92,12 +92,12 @@ func ParseEpisode(row map[string]any) EpisodicNode {
 	}
 	return EpisodicNode{
 		BaseModel: BaseModel{UUID: uuid, GroupID: stringFromAny(row["group_id"]), CreatedAt: created},
-		Name: stringFromAny(row["name"]), Source: EpisodeType(source),
+		Name:      stringFromAny(row["name"]), Source: EpisodeType(source),
 		SourceDescription: stringFromAny(row["source_description"]),
-		Content: stringFromAny(row["content"]), ReferenceTime: reference, EntityEdges: edges,
+		Content:           stringFromAny(row["content"]), ReferenceTime: reference, EntityEdges: edges,
 		Affect: affect, InteractionPattern: stringPtrFromAny(row["interaction_pattern"]),
 		CognitionProcessedAt: coerceTime(row["cognition_processed_at"]),
-		CognitionVersion: stringPtrFromAny(row["cognition_version"]),
+		CognitionVersion:     stringPtrFromAny(row["cognition_version"]),
 	}
 }
 
@@ -116,18 +116,26 @@ func ParseEntity(row map[string]any) EntityNode {
 		labels = []string{"Entity"}
 	}
 	aliases := asStringSlice(row["aliases"])
-	if aliases == nil { aliases = []string{} }
+	if aliases == nil {
+		aliases = []string{}
+	}
 	traits := asStringSlice(row["traits"])
-	if traits == nil { traits = []string{} }
+	if traits == nil {
+		traits = []string{}
+	}
 	goals := asStringSlice(row["goals_active"])
-	if goals == nil { goals = []string{} }
+	if goals == nil {
+		goals = []string{}
+	}
 	attrs := mapFromAny(row["attributes"])
-	if attrs == nil { attrs = map[string]any{} }
+	if attrs == nil {
+		attrs = map[string]any{}
+	}
 	salience, _ := toFloat(row["salience"])
 	mentionCount := intFromAny(row["mention_count"])
 	return EntityNode{
 		BaseModel: BaseModel{UUID: uuid, GroupID: stringFromAny(row["group_id"]), CreatedAt: created},
-		Name: stringFromAny(row["name"]), NameEmbedding: rowVector(row["name_embedding"]),
+		Name:      stringFromAny(row["name"]), NameEmbedding: rowVector(row["name_embedding"]),
 		Summary: stringFromAny(row["summary"]), Labels: labels, Attributes: attrs,
 		CanonicalName: stringPtrFromAny(row["canonical_name"]), Aliases: aliases,
 		ProfileSummary: stringFromAny(row["profile_summary"]), ProfileEmbedding: rowVector(row["profile_embedding"]),
@@ -140,16 +148,22 @@ func ParseEntity(row map[string]any) EntityNode {
 func ParseEntityAlias(row map[string]any) EntityAlias {
 	now := utcNow()
 	uuid := stringFromAny(row["uuid"])
-	if uuid == "" { uuid = stripRecordID(row["id"]) }
+	if uuid == "" {
+		uuid = stripRecordID(row["id"])
+	}
 	created := now
-	if v := coerceTime(row["created_at"]); v != nil { created = *v }
+	if v := coerceTime(row["created_at"]); v != nil {
+		created = *v
+	}
 	confidence := 1.0
 	if row["confidence"] != nil {
-		if v, ok := toFloat(row["confidence"]); ok { confidence = v }
+		if v, ok := toFloat(row["confidence"]); ok {
+			confidence = v
+		}
 	}
 	return EntityAlias{
 		BaseModel: BaseModel{UUID: uuid, GroupID: stringFromAny(row["group_id"]), CreatedAt: created},
-		Alias: stringFromAny(row["alias"]), NormalizedAlias: stringFromAny(row["normalized_alias"]),
+		Alias:     stringFromAny(row["alias"]), NormalizedAlias: stringFromAny(row["normalized_alias"]),
 		EntityUUID: stringFromAny(row["entity_uuid"]), Confidence: confidence,
 		SourceEpisodeUUID: stringPtrFromAny(row["source_episode_uuid"]),
 	}
@@ -158,38 +172,86 @@ func ParseEntityAlias(row map[string]any) EntityAlias {
 func ParseEdge(row map[string]any) EntityEdge {
 	now := utcNow()
 	uuid := stringFromAny(row["uuid"])
-	if uuid == "" { uuid = stripRecordID(row["id"]) }
+	if uuid == "" {
+		uuid = stripRecordID(row["id"])
+	}
 	created := now
-	if v := coerceTime(row["created_at"]); v != nil { created = *v }
+	if v := coerceTime(row["created_at"]); v != nil {
+		created = *v
+	}
 	src := stringFromAny(row["source_node_uuid"])
-	if src == "" { src = stripRecordID(row["in"]) }
+	if src == "" {
+		src = stripRecordID(row["in"])
+	}
 	dst := stringFromAny(row["target_node_uuid"])
-	if dst == "" { dst = stripRecordID(row["out"]) }
+	if dst == "" {
+		dst = stripRecordID(row["out"])
+	}
 	confidence := 1.0
 	if row["confidence"] != nil {
-		if v, ok := toFloat(row["confidence"]); ok { confidence = v }
+		if v, ok := toFloat(row["confidence"]); ok {
+			confidence = v
+		}
 	}
 	weight := 1.0
-	if row["weight"] != nil { if v, ok := toFloat(row["weight"]); ok { weight = v } }
+	if row["weight"] != nil {
+		if v, ok := toFloat(row["weight"]); ok {
+			weight = v
+		}
+	}
 	decayScore := 1.0
-	if row["decay_score"] != nil { if v, ok := toFloat(row["decay_score"]); ok { decayScore = v } }
+	if row["decay_score"] != nil {
+		if v, ok := toFloat(row["decay_score"]); ok {
+			decayScore = v
+		}
+	}
 	reinforcement := intFromAny(row["reinforcement_count"])
-	if reinforcement == 0 { reinforcement = 1 }
+	if reinforcement == 0 {
+		reinforcement = 1
+	}
 	attrs := mapFromAny(row["attributes"])
-	if attrs == nil { attrs = map[string]any{} }
+	if attrs == nil {
+		attrs = map[string]any{}
+	}
 	memoryClass := strings.ToLower(strings.TrimSpace(stringFromAny(attrs["memory_class"])))
-	if memoryClass == "" { memoryClass = "objective" }
-	status := stringFromAny(row["status"]); if status == "" { status = "active" }
-	polarity := stringFromAny(row["polarity"]); if polarity == "" { polarity = "positive" }
-	sourceType := stringFromAny(row["source_type"]); if sourceType == "" { sourceType = "user" }
-	stability := stringFromAny(row["stability"]); if stability == "" { stability = "episodic" }
-	episodes := asStringSlice(row["episodes"]); if episodes == nil { episodes = []string{} }
-	supersedes := asStringSlice(row["supersedes"]); if supersedes == nil { supersedes = []string{} }
-	consolidates := asStringSlice(row["consolidates"]); if consolidates == nil { consolidates = []string{} }
-	qualifiers := mapFromAny(row["qualifiers"]); if qualifiers == nil { qualifiers = map[string]any{} }
+	if memoryClass == "" {
+		memoryClass = "objective"
+	}
+	status := stringFromAny(row["status"])
+	if status == "" {
+		status = "active"
+	}
+	polarity := stringFromAny(row["polarity"])
+	if polarity == "" {
+		polarity = "positive"
+	}
+	sourceType := stringFromAny(row["source_type"])
+	if sourceType == "" {
+		sourceType = "user"
+	}
+	stability := stringFromAny(row["stability"])
+	if stability == "" {
+		stability = "episodic"
+	}
+	episodes := asStringSlice(row["episodes"])
+	if episodes == nil {
+		episodes = []string{}
+	}
+	supersedes := asStringSlice(row["supersedes"])
+	if supersedes == nil {
+		supersedes = []string{}
+	}
+	consolidates := asStringSlice(row["consolidates"])
+	if consolidates == nil {
+		consolidates = []string{}
+	}
+	qualifiers := mapFromAny(row["qualifiers"])
+	if qualifiers == nil {
+		qualifiers = map[string]any{}
+	}
 	return EntityEdge{
 		EdgeBase: EdgeBase{BaseModel: BaseModel{UUID: uuid, GroupID: stringFromAny(row["group_id"]), CreatedAt: created}, SourceNodeUUID: src, TargetNodeUUID: dst},
-		Name: stringFromAny(row["name"]), Fact: stringFromAny(row["fact"]), FactEmbedding: rowVector(row["fact_embedding"]),
+		Name:     stringFromAny(row["name"]), Fact: stringFromAny(row["fact"]), FactEmbedding: rowVector(row["fact_embedding"]),
 		Episodes: episodes, ValidAt: coerceTime(row["valid_at"]), InvalidAt: coerceTime(row["invalid_at"]), ExpiredAt: coerceTime(row["expired_at"]),
 		ReferenceRoles: asStringSlice(row["reference_roles"]), ReferenceMetadata: metadataSliceFromAny(row["reference_metadata"]),
 		Status: status, Polarity: polarity, SourceType: sourceType, Confidence: confidence,
@@ -207,27 +269,51 @@ func ParseEdge(row map[string]any) EntityEdge {
 
 func ParseEpisodicEdge(row map[string]any) EpisodicEdge {
 	now := utcNow()
-	uuid := stringFromAny(row["uuid"]); if uuid == "" { uuid = stripRecordID(row["id"]) }
-	created := now; if v := coerceTime(row["created_at"]); v != nil { created = *v }
+	uuid := stringFromAny(row["uuid"])
+	if uuid == "" {
+		uuid = stripRecordID(row["id"])
+	}
+	created := now
+	if v := coerceTime(row["created_at"]); v != nil {
+		created = *v
+	}
 	return EpisodicEdge{EdgeBase: EdgeBase{BaseModel: BaseModel{UUID: uuid, GroupID: stringFromAny(row["group_id"]), CreatedAt: created}, SourceNodeUUID: stripRecordID(row["in"]), TargetNodeUUID: stripRecordID(row["out"])}}
 }
 
 func ParseCommunityEdge(row map[string]any) CommunityEdge {
 	now := utcNow()
-	uuid := stringFromAny(row["uuid"]); if uuid == "" { uuid = stripRecordID(row["id"]) }
-	created := now; if v := coerceTime(row["created_at"]); v != nil { created = *v }
+	uuid := stringFromAny(row["uuid"])
+	if uuid == "" {
+		uuid = stripRecordID(row["id"])
+	}
+	created := now
+	if v := coerceTime(row["created_at"]); v != nil {
+		created = *v
+	}
 	return CommunityEdge{EdgeBase: EdgeBase{BaseModel: BaseModel{UUID: uuid, GroupID: stringFromAny(row["group_id"]), CreatedAt: created}, SourceNodeUUID: stripRecordID(row["in"]), TargetNodeUUID: stripRecordID(row["out"])}}
 }
 
 func ParseCommunity(row map[string]any) CommunityNode {
 	now := utcNow()
-	uuid := stringFromAny(row["uuid"]); if uuid == "" { uuid = stripRecordID(row["id"]) }
-	created := now; if v := coerceTime(row["created_at"]); v != nil { created = *v }
-	kind := stringFromAny(row["kind"]); if kind == "" { kind = "cluster" }
-	payload := mapFromAny(row["payload"]); if payload == nil { payload = map[string]any{} }
+	uuid := stringFromAny(row["uuid"])
+	if uuid == "" {
+		uuid = stripRecordID(row["id"])
+	}
+	created := now
+	if v := coerceTime(row["created_at"]); v != nil {
+		created = *v
+	}
+	kind := stringFromAny(row["kind"])
+	if kind == "" {
+		kind = "cluster"
+	}
+	payload := mapFromAny(row["payload"])
+	if payload == nil {
+		payload = map[string]any{}
+	}
 	return CommunityNode{
 		BaseModel: BaseModel{UUID: uuid, GroupID: stringFromAny(row["group_id"]), CreatedAt: created},
-		Name: stringFromAny(row["name"]), NameEmbedding: rowVector(row["name_embedding"]),
+		Name:      stringFromAny(row["name"]), NameEmbedding: rowVector(row["name_embedding"]),
 		Summary: stringFromAny(row["summary"]), Kind: kind, Domain: stringPtrFromAny(row["domain"]), Payload: payload,
 	}
 }

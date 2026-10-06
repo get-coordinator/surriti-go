@@ -14,7 +14,7 @@ func NormalizeAlias(name string) string {
 		return ""
 	}
 	cleaned := aliasPunctRE.ReplaceAllString(name, " ")
-	cleaned = strings.ToLower(cleaned)
+	cleaned = casefold(cleaned)
 	return strings.Join(strings.Fields(cleaned), " ")
 }
 
@@ -109,7 +109,9 @@ func ResolveEntityMentions(
 			"SELECT * FROM entity_alias WHERE group_id = $g AND normalized_alias IN $aliases;",
 			map[string]any{"g": groupID, "aliases": uniqueNorm},
 		)
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		for _, row := range UnwrapRows(raw) {
 			key := stringFromAny(row["normalized_alias"])
 			if _, ok := aliasToEntity[key]; !ok {
@@ -123,7 +125,9 @@ func ResolveEntityMentions(
 	entityOrder := []EntityNode{}
 	if len(uniqueNorm) > 0 || len(aliasToEntity) > 0 {
 		raw, err := driver.Query(ctx, "SELECT * FROM entity WHERE group_id = $g;", map[string]any{"g": groupID})
-		if err != nil { return nil, err }
+		if err != nil {
+			return nil, err
+		}
 		for _, row := range UnwrapRows(raw) {
 			node := ParseEntity(row)
 			if node.UUID != "" {
@@ -152,10 +156,14 @@ func ResolveEntityMentions(
 			uuid := stringFromAny(aliasRow["entity_uuid"])
 			if existing, ok := entityRowsByUUID[uuid]; ok {
 				name := existing.Name
-				if existing.CanonicalName != nil { name = *existing.CanonicalName }
+				if existing.CanonicalName != nil {
+					name = *existing.CanonicalName
+				}
 				conf := 1.0
 				if aliasRow["confidence"] != nil {
-					if v, ok := toFloat(aliasRow["confidence"]); ok { conf = v }
+					if v, ok := toFloat(aliasRow["confidence"]); ok {
+						conf = v
+					}
 				}
 				u := existing.UUID
 				ex := existing
@@ -166,7 +174,9 @@ func ResolveEntityMentions(
 		}
 		if existing, ok := entityByNormName[key]; ok {
 			name := existing.Name
-			if existing.CanonicalName != nil { name = *existing.CanonicalName }
+			if existing.CanonicalName != nil {
+				name = *existing.CanonicalName
+			}
 			u := existing.UUID
 			ex := existing
 			r := ResolvedEntity{Mention: mention, CanonicalUUID: &u, CanonicalName: name, Resolution: ResolutionExactName, Confidence: 1, Existing: &ex}
@@ -179,22 +189,28 @@ func ResolveEntityMentions(
 	ambiguous := map[int][]scoredEntity{}
 	if len(unresolved) > 0 && len(entityRowsByUUID) > 0 {
 		names := make([]string, len(unresolved))
-		for i, idx := range unresolved { names[i] = mentions[idx].Name }
+		for i, idx := range unresolved {
+			names[i] = mentions[idx].Name
+		}
 		vectors, err := CreateBatch(ctx, embedder, names)
 		if err == nil {
 			still := []int{}
 			for local, vec := range vectors {
-				if local >= len(unresolved) { break }
+				if local >= len(unresolved) {
+					break
+				}
 				idx := unresolved[local]
 				scored := []scoredEntity{}
 				for _, node := range entityOrder {
-					if len(node.NameEmbedding) == 0 { continue }
+					if len(node.NameEmbedding) == 0 {
+						continue
+					}
 					score := CosineSimilarity(vec, node.NameEmbedding)
 					if score >= threshold {
 						scored = append(scored, scoredEntity{node: node, score: score})
 					}
 				}
-				sort.SliceStable(scored, func(i,j int) bool { return scored[i].score > scored[j].score })
+				sort.SliceStable(scored, func(i, j int) bool { return scored[i].score > scored[j].score })
 				if len(scored) == 0 {
 					still = append(still, idx)
 					continue
@@ -202,13 +218,17 @@ func ResolveEntityMentions(
 				top := scored[0]
 				if len(scored) == 1 || top.score-scored[1].score >= .05 {
 					name := top.node.Name
-					if top.node.CanonicalName != nil { name = *top.node.CanonicalName }
+					if top.node.CanonicalName != nil {
+						name = *top.node.CanonicalName
+					}
 					u := top.node.UUID
 					ex := top.node
 					r := ResolvedEntity{Mention: mentions[idx], CanonicalUUID: &u, CanonicalName: name, Resolution: ResolutionSemanticMatch, Confidence: top.score, Existing: &ex}
 					results[idx] = &r
 				} else {
-					if len(scored) > 3 { scored = scored[:3] }
+					if len(scored) > 3 {
+						scored = scored[:3]
+					}
 					ambiguous[idx] = scored
 				}
 			}
@@ -224,10 +244,14 @@ func ResolveEntityMentions(
 				payload := make([]AliasCandidate, 0, len(scored))
 				for _, s := range scored {
 					name := s.node.Name
-					if s.node.CanonicalName != nil { name = *s.node.CanonicalName }
+					if s.node.CanonicalName != nil {
+						name = *s.node.CanonicalName
+					}
 					summary := s.node.ProfileSummary
-					if summary == "" { summary = s.node.Summary }
-					payload = append(payload, AliasCandidate{UUID:s.node.UUID, Name:name, Summary:summary})
+					if summary == "" {
+						summary = s.node.Summary
+					}
+					payload = append(payload, AliasCandidate{UUID: s.node.UUID, Name: name, Summary: summary})
 				}
 				var winner *string
 				var err error
@@ -237,14 +261,20 @@ func ResolveEntityMentions(
 					winner, err = defaultLLMResolver(ctx, llm, mentions[idx], payload, episodeContext)
 				}
 				// Python treats resolver failure as no-match.
-				if err != nil || winner == nil { continue }
+				if err != nil || winner == nil {
+					continue
+				}
 				for _, s := range scored {
-					if s.node.UUID != *winner { continue }
+					if s.node.UUID != *winner {
+						continue
+					}
 					name := s.node.Name
-					if s.node.CanonicalName != nil { name = *s.node.CanonicalName }
+					if s.node.CanonicalName != nil {
+						name = *s.node.CanonicalName
+					}
 					u := s.node.UUID
 					ex := s.node
-					r := ResolvedEntity{Mention: mentions[idx], CanonicalUUID:&u, CanonicalName:name, Resolution:ResolutionLLMMatch, Confidence:.9, Existing:&ex}
+					r := ResolvedEntity{Mention: mentions[idx], CanonicalUUID: &u, CanonicalName: name, Resolution: ResolutionLLMMatch, Confidence: .9, Existing: &ex}
 					results[idx] = &r
 					unresolved = removeInt(unresolved, idx)
 					break
@@ -262,7 +292,9 @@ func ResolveEntityMentions(
 
 	final := make([]ResolvedEntity, 0, len(results))
 	for _, r := range results {
-		if r != nil { final = append(final, *r) }
+		if r != nil {
+			final = append(final, *r)
+		}
 	}
 	if createMissing {
 		recordAliases(ctx, driver, final, groupID, episodeUUID)
@@ -270,27 +302,42 @@ func ResolveEntityMentions(
 	return final, nil
 }
 
-type scoredEntity struct { node EntityNode; score float64 }
+type scoredEntity struct {
+	node  EntityNode
+	score float64
+}
 
 func sortedIntKeys(m map[int][]scoredEntity) []int {
-	out := make([]int,0,len(m))
-	for k := range m { out=append(out,k) }
+	out := make([]int, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
 	sort.Ints(out)
 	return out
 }
 
 func removeInt(xs []int, target int) []int {
 	out := xs[:0]
-	for _, x := range xs { if x != target { out=append(out,x) } }
+	for _, x := range xs {
+		if x != target {
+			out = append(out, x)
+		}
+	}
 	return out
 }
 
 func recordAliases(ctx context.Context, driver Queryer, resolved []ResolvedEntity, groupID string, episodeUUID *string) {
 	for _, r := range resolved {
-		if r.CanonicalUUID == nil || r.Existing == nil { continue }
-		if r.Resolution == ResolutionAliasHit || r.Resolution == ResolutionExactName { continue }
+		if r.CanonicalUUID == nil || r.Existing == nil {
+			continue
+		}
+		if r.Resolution == ResolutionAliasHit || r.Resolution == ResolutionExactName {
+			continue
+		}
 		norm := NormalizeAlias(r.Mention.Name)
-		if norm == "" { continue }
+		if norm == "" {
+			continue
+		}
 		uuid := newUUID()
 		_, err := driver.Query(ctx, `
 CREATE type::record("entity_alias", $uuid) CONTENT {

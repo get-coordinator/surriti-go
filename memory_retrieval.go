@@ -308,7 +308,6 @@ func EvidenceSnippets(text, query string, k, maxChars int) []string {
 	return out
 }
 
-
 // AttachEpisodeEvidence mirrors Python's fail-soft recall enrichment. It mutates
 // the candidate attribute bags in place and deliberately suppresses storage
 // errors so evidence decoration can never make recall fail.
@@ -407,14 +406,19 @@ func ResurrectSilentMemory(
 	filters *SearchFilters,
 	egoFilter []string,
 ) map[string]any {
+	return resurrectSilentMemory(ctx, driver, queryEmbedding, groupID, minCosine, filters, egoFilter, nil)
+}
+
+func resurrectSilentMemory(ctx context.Context, driver Queryer, queryEmbedding []float64, groupID *string, minCosine float64, filters *SearchFilters, egoFilter, allowedEdgeUUIDs []string) map[string]any {
 	if queryEmbedding == nil {
 		return nil
 	}
-	if minCosine == 0 {
-		minCosine = 0.45
-	}
 	where := `WHERE status = "silent" AND fact_embedding IS NOT NONE`
 	params := map[string]any{"vec": queryEmbedding}
+	if allowedEdgeUUIDs != nil {
+		where += " AND uuid IN $allowed_edge_uuids"
+		params["allowed_edge_uuids"] = allowedEdgeUUIDs
+	}
 	if groupID != nil {
 		where += " AND group_id = $group_id"
 		params["group_id"] = *groupID

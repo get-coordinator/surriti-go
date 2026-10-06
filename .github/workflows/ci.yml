@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [master, parity-completion]
+    branches: [main]
   pull_request:
 
 permissions:
@@ -27,6 +27,8 @@ jobs:
           go mod tidy
           git diff -- go.mod go.sum
           git diff --exit-code -- go.mod go.sum
+      - name: Check formatting
+        run: test -z "$(gofmt -l .)"
       - name: Vet
         run: go vet ./...
       - name: Race tests
@@ -39,10 +41,8 @@ jobs:
       SURRITI_INTEGRATION: "1"
       SURRITI_SURREAL_URL: ws://127.0.0.1:8000/rpc
       SURRITI_SURREAL_NS: surriti_go
-      SURRITI_SURREAL_DB: integration
       SURRITI_SURREAL_USER: root
       SURRITI_SURREAL_PASS: root
-      SURRITI_ALLOW_DESTRUCTIVE: "1"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
@@ -56,14 +56,15 @@ jobs:
           docker run -d --name surrealdb -p 8000:8000 surrealdb/surrealdb:v3.0.5 \
             start --user root --pass root memory
           for i in $(seq 1 30); do
-            if docker logs surrealdb 2>&1 | grep -qi "started\|listening\|web server"; then
-              break
+            if docker exec surrealdb /surreal is-ready --endpoint http://127.0.0.1:8000; then
+              exit 0
             fi
             sleep 1
           done
-          docker ps
+          docker logs surrealdb
+          exit 1
       - name: Live integration tests
-        run: go test -count=1 -run '^TestIntegration' ./...
+        run: go test -race -count=1 -run '^TestIntegration' ./...
       - name: Dump SurrealDB logs on failure
         if: failure()
         run: docker logs surrealdb

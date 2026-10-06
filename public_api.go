@@ -13,6 +13,6 @@ const (
 )
 
 var (
-	DEFAULT_FRAMES       = DefaultFrames
-	IDENTITY_PREDICATES  = IdentityPredicates
+	DEFAULT_FRAMES      = DefaultFrames
+	IDENTITY_PREDICATES = IdentityPredicates
 )

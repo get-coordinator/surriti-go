@@ -50,16 +50,22 @@ func TestEvidenceSnippetsParity(t *testing.T) {
 }
 
 func equalStrings(a, b []string) bool {
-	if len(a) != len(b) { return false }
+	if len(a) != len(b) {
+		return false
+	}
 	for i := range a {
-		if a[i] != b[i] { return false }
+		if a[i] != b[i] {
+			return false
+		}
 	}
 	return true
 }
 
 func contains(s, sub string) bool {
 	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub { return true }
+		if s[i:i+len(sub)] == sub {
+			return true
+		}
 	}
 	return false
 }

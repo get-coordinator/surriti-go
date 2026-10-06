@@ -338,3 +338,38 @@ func TestCloseIsIdempotent(t *testing.T) {
 		t.Fatalf("closes=%d", client.closes.Load())
 	}
 }
+
+func TestClosePreventsStaleRequestReopeningDriver(t *testing.T) {
+	ctx := context.Background()
+	started, release := make(chan struct{}), make(chan struct{})
+	client := &fakeClient{queryFn: func(context.Context, string, map[string]any) (any, error) {
+		close(started)
+		<-release
+		return nil, errors.New("connection closed")
+	}}
+	f := &fakeFactory{openFn: func(context.Context, string, int) (DBClient, error) { return client, nil }}
+	d := testDriver(t, f)
+	if err := d.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { _, err := d.Query(ctx, "RETURN 1", nil); done <- err }()
+	<-started
+	if err := d.Close(ctx); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	if err := <-done; err == nil {
+		t.Fatal("stale query succeeded after close")
+	}
+	if f.count() != 1 || d.snapshot() != nil {
+		t.Fatal("stale query reopened closed driver")
+	}
+	if err := d.Connect(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if f.count() != 2 {
+		t.Fatal("explicit reconnect should work")
+	}
+	_ = d.Close(ctx)
+}

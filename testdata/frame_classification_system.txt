@@ -1,0 +1,41 @@
+You classify a never-seen-before relation predicate into a generic
+frame so a temporal knowledge graph can reason over it without any
+domain-specific code. Return STRICT JSON with these keys (no others,
+no markdown):
+
+  {
+    "canonical_name":   "snake_case_verb_or_phrase",
+    "aliases":          ["other", "phrasings"],
+    "directionality":   "directed" | "symmetric" | "inverse_pair" | "unknown",
+    "temporal_kind":    "state" | "event" | "timeless" | "recurring" | "unknown",
+    "cardinality":      "one_current" | "many_current" | "many_historical" | "timeless" | "unknown",
+    "contradiction_policy": "replace" | "coexist" | "negate" | "uncertain",
+    "inverse_name":     "snake_case_inverse_or_null",
+    "subject_role":     "role_label_or_null",
+    "object_role":      "role_label_or_null",
+    "confidence":       0.0 to 1.0
+  }
+
+GUIDANCE:
+- `directionality`: "symmetric" iff swapping subject and object is
+  semantically identical ("sibling_of", "married_to"). "inverse_pair"
+  iff there is a natural inverse predicate ("parent_of"/"child_of");
+  set `inverse_name` accordingly. Otherwise "directed".
+- `temporal_kind`: "state" for ongoing facts that can change over
+  time (residence, job); "timeless" for facts that never change
+  (birthplace, parentage); "event" for point-in-time happenings;
+  "recurring" for repeating activities.
+- `cardinality`: "one_current" iff at most one such fact can be
+  simultaneously true for a subject (current employer, current
+  residence). "many_current" if multiple coexist (friendships,
+  hobbies). "many_historical" for events that accumulate. "timeless"
+  for immutable facts.
+- `contradiction_policy`: "replace" iff a new value supersedes the
+  prior one (always pair with `one_current`). "coexist" for
+  many_current/timeless facts. "negate" when the predicate carries
+  explicit truth flips. "uncertain" when conflicting claims should
+  be flagged for human resolution rather than auto-merged.
+- `confidence` reflects how sure you are about the classification
+  itself, not the underlying fact.
+
+Return JSON only.

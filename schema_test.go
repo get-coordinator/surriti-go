@@ -3,13 +3,16 @@ package surriti
 import (
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 )
 
 func TestSchemaDDLUsesConfiguredEmbeddingDimensionAndManagedTables(t *testing.T) {
 	ddl, err := SchemaDDL(256)
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, s := range []string{
 		"HNSW DIMENSION 256",
 		"DEFINE TABLE IF NOT EXISTS episode",
@@ -20,7 +23,9 @@ func TestSchemaDDLUsesConfiguredEmbeddingDimensionAndManagedTables(t *testing.T)
 		"relates_to_canonical_idx",
 		"cognition_processed_at",
 	} {
-		if !strings.Contains(ddl, s) { t.Fatalf("DDL missing %q", s) }
+		if !strings.Contains(ddl, s) {
+			t.Fatalf("DDL missing %q", s)
+		}
 	}
 }
 
@@ -45,9 +50,27 @@ func TestSchemaCompatibilityUsesPermissiveThenStrictFields(t *testing.T) {
 
 func TestSchemaInitErrorClassification(t *testing.T) {
 	err := schemaInitError(context.Background(), errors.New("boom"))
-	if !errors.Is(err, ErrSchema) { t.Fatalf("err=%v", err) }
+	if !errors.Is(err, ErrSchema) {
+		t.Fatalf("err=%v", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	err = schemaInitError(ctx, errors.New("boom"))
-	if !errors.Is(err, context.Canceled) { t.Fatalf("err=%v", err) }
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("err=%v", err)
+	}
+}
+
+func TestSchemaMatchesFrozenPython(t *testing.T) {
+	expected, err := os.ReadFile("testdata/schema.surql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual, err := SchemaDDL(768)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if actual != string(expected) {
+		t.Fatal("schema differs from frozen Python baseline")
+	}
 }

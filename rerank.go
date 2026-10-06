@@ -72,7 +72,7 @@ func MMRRerank(candidates []map[string]any, queryEmbedding []float64, embeddingF
 		return append([]map[string]any(nil), candidates[:limit]...)
 	}
 	pool := append([]map[string]any(nil), candidates...)
-	selected := make([]map[string]any, 0, minInt(limit, len(pool)))
+	selected := make([]map[string]any, 0, min(limit, len(pool)))
 	for len(pool) > 0 && len(selected) < limit {
 		bestIdx := 0
 		bestScore := -1e9
@@ -116,9 +116,7 @@ func CrossEncoderRerank(ctx context.Context, candidates []map[string]any, query,
 	}
 	order := map[string]int{}
 	for i, r := range ranked {
-		if _, exists := order[r.Passage]; !exists {
-			order[r.Passage] = i
-		}
+		order[r.Passage] = i
 	}
 	out := append([]map[string]any(nil), candidates...)
 	sort.SliceStable(out, func(i, j int) bool {
@@ -153,11 +151,4 @@ func EpisodeMentionsRerank(candidates []map[string]any, limit int) []map[string]
 		out = out[:limit]
 	}
 	return out
-}
-
-func minInt(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
