@@ -72,6 +72,9 @@ type SurritiOptions struct {
 	ProfileRefresh           string
 	ProfileSummaryMaxFacts   int
 	Cognition                  *CognitionConfig
+	// CognitionEnabled mirrors Python's cognition=true/false shorthand.
+	// When non-nil it overrides Cognition.Enabled.
+	CognitionEnabled           *bool
 }
 
 type Surriti struct {
@@ -154,6 +157,9 @@ func NewSurriti(driver Queryer, options *SurritiOptions) (*Surriti, error) {
 	cognition := DefaultCognitionConfig()
 	if opts.Cognition != nil {
 		cognition = *opts.Cognition
+	}
+	if opts.CognitionEnabled != nil {
+		cognition.Enabled = *opts.CognitionEnabled
 	}
 	bgCtx, bgCancel := context.WithCancel(context.Background())
 	frames := opts.RelationFrames
