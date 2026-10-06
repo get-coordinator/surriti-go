@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"os"
 	"strconv"
@@ -60,6 +61,15 @@ func stringsFromJSON(v any) []string {
 	}
 }
 
+func llmFloat(v any, fallback float64) float64 {
+	if v == nil { return fallback }
+	if f, ok := toFloat(v); ok { return f }
+	if s, ok := v.(string); ok {
+		if f, err := strconv.ParseFloat(strings.TrimSpace(s), 64); err == nil { return f }
+	}
+	return fallback
+}
+
 func parseExtractionJSON(raw string) (ExtractionResult,error) {
 	var data map[string]any
 	if err:=json.Unmarshal([]byte(stripJSONFences(raw)),&data);err!=nil {
@@ -84,8 +94,11 @@ func parseExtractionJSON(raw string) (ExtractionResult,error) {
 			op:=FactOperation(strings.ToLower(strings.TrimSpace(stringFromAny(m["operation"]))));switch op{case FactAssert,FactTerminate,FactCorrect,FactQualify,FactNoop:default:op=FactAssert}
 			mc:=strings.ToLower(strings.TrimSpace(stringFromAny(m["memory_class"])));if _,ok:=allowedClass[mc];!ok{mc="objective"}
 			var domain *string;if d,ok:=m["domain"].(string);ok{d=strings.ToLower(strings.TrimSpace(d));if d!=""{domain=&d}}
-			replaces:=stringsFromJSON(m["replaces"])
-			conf:=1.0;if m["confidence"]!=nil{if v,ok:=toFloat(m["confidence"]);ok{conf=v}}
+			replaces:=[]string{}
+			if rawReplaces,ok:=m["replaces"].([]any);ok{
+				for _,v:=range rawReplaces{if s:=strings.TrimSpace(fmt.Sprint(v));v!=nil&&s!=""{replaces=append(replaces,s)}}
+			}
+			conf:=llmFloat(m["confidence"],1.0)
 			var relationPhrase *string;if v,ok:=m["relation_phrase"].(string);ok&&strings.TrimSpace(v)!=""{v=strings.TrimSpace(v);relationPhrase=&v}
 			qual:=mapFromAny(m["qualifiers"])
 			roles:=map[string]string{};for k,v:=range mapFromAny(m["argument_roles"]){roles[k]=stringFromAny(v)}
@@ -122,7 +135,20 @@ func buildContradictionUser(req ContradictionRequest) string {
 func parseContradictionsJSON(raw string,n int)[]int{
 	var data map[string]any;if json.Unmarshal([]byte(stripJSONFences(raw)),&data)!=nil{return []int{}}
 	arr:=asAnySlice(data["invalidated_indexes"]);out:=[]int{}
-	for _,x:=range arr{idx:=-1;switch v:=x.(type){case float64:idx=int(v);case int:idx=v;case json.Number:i,_:=strconv.Atoi(v.String());idx=i};if idx>=0&&idx<n{out=append(out,idx)}}
+	for _,x:=range arr{
+		idx:=-1
+		switch v:=x.(type){
+		case float64:
+			if math.Trunc(v)==v{idx=int(v)}
+		case int:
+			idx=v
+		case json.Number:
+			if i,err:=strconv.Atoi(v.String());err==nil{idx=i}
+		case bool:
+			if v{idx=1}else{idx=0}
+		}
+		if idx>=0&&idx<n{out=append(out,idx)}
+	}
 	return out
 }
 
@@ -142,7 +168,7 @@ func parseFrameClassificationJSON(raw,fallback string)*RelationFrame{
 	card:=Cardinality(strings.ToLower(stringFromAny(data["cardinality"])));switch card{case CardinalityOneCurrent,CardinalityManyCurrent,CardinalityManyHistorical,CardinalityTimeless,CardinalityUnknown:default:card=CardinalityUnknown}
 	cp:=ContradictionPolicy(strings.ToLower(stringFromAny(data["contradiction_policy"])));switch cp{case ContradictionReplace,ContradictionCoexist,ContradictionNegate,ContradictionUncertain:default:cp=ContradictionUncertain}
 	var inv,sr,or *string;if v:=strings.ToLower(strings.TrimSpace(stringFromAny(data["inverse_name"])));v!=""{inv=&v};if v:=strings.TrimSpace(stringFromAny(data["subject_role"]));v!=""{sr=&v};if v:=strings.TrimSpace(stringFromAny(data["object_role"]));v!=""{or=&v}
-	conf:=.5;if data["confidence"]!=nil{if v,ok:=toFloat(data["confidence"]);ok{conf=v}};if conf<0{conf=0};if conf>1{conf=1}
+	conf:=llmFloat(data["confidence"],.5);if conf<0{conf=0};if conf>1{conf=1}
 	f:=RelationFrame{BaseModel:NewBaseModel(""),CanonicalName:canon,Aliases:aliases,Directionality:dir,TemporalKind:tk,Cardinality:card,ContradictionPolicy:cp,InverseName:inv,SubjectRole:sr,ObjectRole:or,Confidence:conf}
 	return &f
 }
