@@ -253,11 +253,17 @@ func (s *Surriti) AddEpisode(ctx context.Context,req AddEpisodeRequest)(AddEpiso
 		if err!=nil{return AddEpisodeResults{},err}
 	}
 
-	// Profile and cognition hooks are fail-soft by Python contract. They are
-	// invoked only when those optional parity layers are installed.
+	// Profile refresh is deliberately fail-soft: base ingest success never
+	// depends on dossier enrichment.
 	if len(entities)>0&&s.ProfileRefreshMode!="off"{
-		if hook,ok:=any(s).(interface{ refreshProfiles(context.Context,string,[]EntityNode) error });ok{
-			if s.ProfileRefreshMode=="sync"{_ = hook.refreshProfiles(ctx,req.GroupID,entities)}
+		ids:=make([]string,0,len(entities));for _,e:=range entities{if e.UUID!=""{ids=append(ids,e.UUID)}}
+		if s.ProfileRefreshMode=="sync"{
+			_ = RefreshEntityProfiles(ctx,s.Driver,s.Embedder,s.LLM,req.GroupID,ids,s.ProfileSummaryMaxFacts,800)
+		}else if len(ids)>0{
+			idsCopy:=append([]string(nil),ids...)
+			s.runBackground(func(bg context.Context){
+				_ = RefreshEntityProfiles(bg,s.Driver,s.Embedder,s.LLM,req.GroupID,idsCopy,s.ProfileSummaryMaxFacts,800)
+			})
 		}
 	}
 
