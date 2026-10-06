@@ -65,8 +65,8 @@ func TestIntegrationEpisodeRetryIsIdempotent(t *testing.T){
 	retry,err:=s.AddEpisode(ctx,AddEpisodeRequest{Name:"turn",EpisodeBody:"Alice works at Acme.",GroupID:"g",UUID:&id})
 	if err!=nil{t.Fatal(err)}
 	if len(retry.Edges)!=0||len(retry.Nodes)!=0||len(retry.EpisodicEdges)!=0{t.Fatalf("completed retry was not no-op: %+v",retry)}
-	raw,err:=d.Query(ctx,"SELECT count() AS cnt FROM mentions WHERE group_id = $g;",map[string]any{"g":"g"});if err!=nil{t.Fatal(err)}
-	rows:=UnwrapRows(raw);if len(rows)==0||intFromAny(rows[0]["cnt"])!=2{t.Fatalf("mention count rows=%v",rows)}
+	raw,err:=d.Query(ctx,"SELECT uuid FROM mentions WHERE group_id = $g;",map[string]any{"g":"g"});if err!=nil{t.Fatal(err)}
+	rows:=UnwrapRows(raw);if len(rows)!=2{t.Fatalf("mention rows=%v want 2",rows)}
 }
 
 func TestIntegrationParticipantIsolationKeepsCanonicalFact(t *testing.T){
