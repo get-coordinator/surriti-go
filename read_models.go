@@ -51,7 +51,7 @@ func ReadModelRecordID(value any) string {
 	if i := strings.IndexByte(raw, ':'); i >= 0 {
 		raw = raw[i+1:]
 	}
-	return strings.Trim(raw, "\x60⟨⟩\'\\\"")
+	return strings.Trim(raw, "\\x60⟨⟩"+string([]rune{39, 34}))
 }
 
 // unwrapReadModelRows matches read_models.py: legacy statement wrappers are
