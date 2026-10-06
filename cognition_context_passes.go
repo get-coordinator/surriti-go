@@ -68,10 +68,10 @@ var domainStop=map[string]struct{}{
 }
 
 func topTerms(texts []string,k int)[]string{
-	counts:=map[string]int{}
-	for _,t:=range texts{for _,tok:=range domainTokenRE.FindAllString(strings.ToLower(t),-1){if _,stop:=domainStop[tok];!stop{counts[tok]++}}}
-	type kv struct{s string;n int};vals:=[]kv{};for s,n:=range counts{vals=append(vals,kv{s,n})}
-	sort.Slice(vals,func(i,j int)bool{if vals[i].n!=vals[j].n{return vals[i].n>vals[j].n};return vals[i].s<vals[j].s})
+	counts:=map[string]int{};order:=map[string]int{};next:=0
+	for _,t:=range texts{for _,tok:=range domainTokenRE.FindAllString(strings.ToLower(t),-1){if _,stop:=domainStop[tok];stop{continue};if _,seen:=order[tok];!seen{order[tok]=next;next++};counts[tok]++}}
+	type kv struct{s string;n int;order int};vals:=[]kv{};for s,n:=range counts{vals=append(vals,kv{s,n,order[s]})}
+	sort.SliceStable(vals,func(i,j int)bool{if vals[i].n!=vals[j].n{return vals[i].n>vals[j].n};return vals[i].order<vals[j].order})
 	if k>len(vals){k=len(vals)};out:=make([]string,k);for i:=0;i<k;i++{out[i]=vals[i].s};return out
 }
 
@@ -87,8 +87,10 @@ func LabelCommunityDomains(ctx context.Context,driver Queryer,llm LLMClient,grou
 		names,facts:=[]string{},[]string{};for _,r:=range UnwrapRows(entsRaw){names=append(names,stringFromAny(r["name"]))};for _,r:=range UnwrapRows(edgeRaw){facts=append(facts,stringFromAny(r["fact"]))}
 		terms:=topTerms(append(append([]string{},names...),facts...),8);if len(terms)==0{continue};label:=""
 		if synth,ok:=llm.(Synthesizer);ok{
-			user:="CLUSTER ENTITIES: "+strings.Join(names,", ")+"\nCLUSTER FACTS:\n- "+strings.Join(facts,"\n- ")+"\nTOP TOKENS: "+strings.Join(terms,", ")
-			if raw,e:=synth.Synthesize(ctx,"Return one short snake_case domain label.",user);e==nil&&raw!=""{label=SnakeCase(strings.Trim(strings.Split(raw,"\n")[0],"\"' "))}
+			nameLimit:=len(names);if nameLimit>12{nameLimit=12};factLimit:=len(facts);if factLimit>8{factLimit=8}
+			factLines:=make([]string,0,factLimit);for _,fact:=range facts[:factLimit]{factLines=append(factLines,"- "+fact)}
+			user:="CLUSTER ENTITIES: "+strings.Join(names[:nameLimit],", ")+"\nCLUSTER FACTS:\n"+strings.Join(factLines,"\n")+"\nTOP TOKENS: "+strings.Join(terms,", ")
+			if raw,e:=synth.Synthesize(ctx,DomainLabelSystem,user);e==nil&&raw!=""{label=SnakeCase(strings.Trim(strings.Split(raw,"\n")[0],"\"'` "))}
 		}
 		if label==""{label=SnakeCase(terms[0])};if label==""{continue}
 		if _,err:=driver.Query(ctx,"UPDATE community SET domain = $d WHERE uuid = $u;",map[string]any{"u":cid,"d":label});err!=nil{return labelled,err}
@@ -98,25 +100,53 @@ func LabelCommunityDomains(ctx context.Context,driver Queryer,llm LLMClient,grou
 	return labelled,nil
 }
 
+func pyReprString(value string) string {
+	value=strings.ReplaceAll(value,"\\","\\\\")
+	value=strings.ReplaceAll(value,"'","\\'")
+	return "'"+value+"'"
+}
+
+func pyReprStrings(values []string) string {
+	parts:=make([]string,len(values));for i,v:=range values{parts[i]=pyReprString(v)}
+	return "["+strings.Join(parts,", ")+"]"
+}
+
+func pyReprGoals(values []map[string]string) string {
+	parts:=make([]string,len(values))
+	for i,v:=range values{parts[i]="{'name': "+pyReprString(v["name"])+", 'summary': "+pyReprString(v["summary"])+"}"}
+	return "["+strings.Join(parts,", ")+"]"
+}
+
 func SynthesizePrediction(ctx context.Context,driver Queryer,llm LLMClient,groupID string)(map[string]any,error){
 	goalsRaw,err:=driver.Query(ctx,`SELECT name, summary FROM entity WHERE group_id = $g AND 'goal' IN labels LIMIT 10;`,map[string]any{"g":groupID});if err!=nil{return nil,err}
 	goals:=[]map[string]string{};for _,r:=range UnwrapRows(goalsRaw){goals=append(goals,map[string]string{"name":stringFromAny(r["name"]),"summary":stringFromAny(r["summary"])})}
+
 	domainRaw,err:=driver.Query(ctx,"SELECT domain FROM entity WHERE group_id = $g AND domain IS NOT NONE;",map[string]any{"g":groupID});if err!=nil{return nil,err}
-	dc:=map[string]int{};for _,r:=range UnwrapRows(domainRaw){if d:=stringFromAny(r["domain"]);d!=""{dc[d]++}}
-	type kv struct{s string;n int};dv:=[]kv{};for d,n:=range dc{dv=append(dv,kv{d,n})};sort.Slice(dv,func(i,j int)bool{return dv[i].n>dv[j].n})
+	dc:=map[string]int{};domainOrder:=map[string]int{};nextDomain:=0
+	for _,r:=range UnwrapRows(domainRaw){if d:=stringFromAny(r["domain"]);d!=""{if _,ok:=domainOrder[d];!ok{domainOrder[d]=nextDomain;nextDomain++};dc[d]++}}
+	type domainKV struct{s string;n int;order int};dv:=[]domainKV{};for d,n:=range dc{dv=append(dv,domainKV{d,n,domainOrder[d]})}
+	sort.SliceStable(dv,func(i,j int)bool{if dv[i].n!=dv[j].n{return dv[i].n>dv[j].n};return dv[i].order<dv[j].order})
 	domains:=[]string{};for i,v:=range dv{if i>=5{break};domains=append(domains,v.s)}
+
 	patRaw,err:=driver.Query(ctx,`SELECT interaction_pattern, reference_time FROM episode WHERE group_id = $g AND interaction_pattern IS NOT NONE ORDER BY reference_time DESC LIMIT 8;`,map[string]any{"g":groupID});if err!=nil{return nil,err}
-	pc:=map[string]int{};for _,r:=range UnwrapRows(patRaw){if p:=stringFromAny(r["interaction_pattern"]);p!=""{pc[p]++}}
-	dominant:="";nmax:=0;for p,n:=range pc{if n>nmax{dominant=p;nmax=n}}
+	pc:=map[string]int{};patternOrder:=map[string]int{};nextPattern:=0
+	for _,r:=range UnwrapRows(patRaw){if p:=stringFromAny(r["interaction_pattern"]);p!=""{if _,ok:=patternOrder[p];!ok{patternOrder[p]=nextPattern;nextPattern++};pc[p]++}}
+	dominant:="";nmax:=0;bestOrder:=int(^uint(0)>>1)
+	for p,n:=range pc{ord:=patternOrder[p];if n>nmax||(n==nmax&&ord<bestOrder){dominant=p;nmax=n;bestOrder=ord}}
 	if len(goals)==0&&len(domains)==0&&dominant==""{return nil,nil}
-	bundle:=map[string]any{}
+
+	dominantRepr:="None";if dominant!=""{dominantRepr=pyReprString(dominant)}
+	user:="ACTIVE_GOALS: "+pyReprGoals(goals)+"\nDOMINANT_DOMAINS: "+pyReprStrings(domains)+"\nDOMINANT_INTERACTION_PATTERN: "+dominantRepr
+	var bundle map[string]any
 	if synth,ok:=llm.(Synthesizer);ok{
-		user:=fmt.Sprintf("ACTIVE_GOALS: %v\nDOMINANT_DOMAINS: %v\nDOMINANT_INTERACTION_PATTERN: %q",goals,domains,dominant)
-		if raw,e:=synth.Synthesize(ctx,"Return JSON with likely_next_topics, likely_preferences, likely_questions.",user);e==nil{
-			if parsed,ok:=ParseJSONLoose(raw).(map[string]any);ok{for _,key:=range []string{"likely_next_topics","likely_preferences","likely_questions"}{vals:=asStringSlice(parsed[key]);if len(vals)>5{vals=vals[:5]};bundle[key]=vals}}
+		if raw,e:=synth.Synthesize(ctx,PredictionSystem,user);e==nil{
+			if parsed,ok:=ParseJSONLoose(raw).(map[string]any);ok{
+				bundle=map[string]any{}
+				for _,key:=range []string{"likely_next_topics","likely_preferences","likely_questions"}{vals:=asStringSlice(parsed[key]);if len(vals)>5{vals=vals[:5]};bundle[key]=vals}
+			}
 		}
 	}
-	if len(bundle)==0{
+	if bundle==nil{
 		prefs:=[]string{};for _,g:=range goals{prefs=append(prefs,g["name"]);if len(prefs)>=3{break}}
 		topics:=append([]string(nil),domains...);if len(topics)>3{topics=topics[:3]}
 		bundle=map[string]any{"likely_next_topics":topics,"likely_preferences":prefs,"likely_questions":[]string{}}
