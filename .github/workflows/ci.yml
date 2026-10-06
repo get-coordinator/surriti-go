@@ -2,7 +2,7 @@ name: ci
 
 on:
   push:
-    branches: [master]
+    branches: [master, parity-completion]
   pull_request:
 
 permissions:
@@ -20,6 +20,8 @@ jobs:
           cache: true
       - name: Download modules
         run: go mod download
+      - name: Verify modules
+        run: go mod verify
       - name: Vet
         run: go vet ./...
       - name: Race tests
