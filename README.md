@@ -17,6 +17,10 @@ Reference implementation:
 
 The Python and Go implementations must remain schema-compatible and must be able to operate against the same SurrealDB data. Existing data is not disposable migration input.
 
+## Current status
+
+Runtime source parity against the frozen Python baseline is complete. The remaining work is environment certification and debugging against real SurrealDB and real provider endpoints. Python's `testing.py` fake driver is intentionally excluded from runtime parity; Go uses native test doubles instead.
+
 ## Priorities
 
 1. Correctness and data safety.
