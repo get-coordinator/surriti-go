@@ -227,6 +227,15 @@ func NormalizeSymmetric(subjectUUID, objectUUID string) (string, string) {
 
 func strptr(v string) *string { return &v }
 
+func ensureRelationFrameIdentity(f RelationFrame, groupID string) RelationFrame {
+	if f.UUID == "" {
+		f.BaseModel = NewBaseModel(groupID)
+	} else if f.CreatedAt.IsZero() {
+		f.CreatedAt = utcNow()
+	}
+	return f
+}
+
 var DefaultFrames = []RelationFrame{
 	{CanonicalName: "spouse_of", Aliases: []string{"wife_of", "husband_of", "married_to", "partner_of"}, Directionality: DirectionSymmetric, TemporalKind: TemporalState, Cardinality: CardinalityOneCurrent, ContradictionPolicy: ContradictionReplace, Confidence: .9},
 	{CanonicalName: "parent_of", Aliases: []string{"father_of", "mother_of", "mom_of", "dad_of"}, Directionality: DirectionInversePair, InverseName: strptr("child_of"), TemporalKind: TemporalTimeless, Cardinality: CardinalityManyCurrent, ContradictionPolicy: ContradictionCoexist, Confidence: .9},
@@ -255,7 +264,9 @@ type RelationFrameRegistry struct {
 func NewRelationFrameRegistry(seedDefaults bool, classifier RelationFrameClassifier) *RelationFrameRegistry {
 	r := &RelationFrameRegistry{global: map[string]RelationFrame{}, byGroup: map[string]map[string]RelationFrame{}, classifier: classifier}
 	if seedDefaults {
-		for _, f := range DefaultFrames {
+		for i, f := range DefaultFrames {
+			f = ensureRelationFrameIdentity(f, "")
+			DefaultFrames[i] = f
 			r.registerGlobalLocked(cloneRelationFrame(f))
 		}
 	}
@@ -293,7 +304,7 @@ func (r *RelationFrameRegistry) registerGlobalLocked(f RelationFrame) {
 }
 
 func (r *RelationFrameRegistry) Register(f RelationFrame, groupID string) RelationFrame {
-	f = cloneRelationFrame(f)
+	f = ensureRelationFrameIdentity(cloneRelationFrame(f), groupID)
 	if f.UUID == "" {
 		f.UUID = newUUID()
 	}
