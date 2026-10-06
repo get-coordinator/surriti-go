@@ -56,79 +56,142 @@ func (s *Surriti) AddSelfEpisode(ctx context.Context,episodeType EpisodeType,con
 	return AddEpisodeResults{Episode:episode,EpisodicEdges:mentions,Nodes:entities,Edges:edges,InvalidatedEdges:[]EntityEdge{},Communities:[]CommunityNode{},CommunityEdges:[]CommunityEdge{}},nil
 }
 
-func (s *Surriti) GetSelfModel(ctx context.Context,groupID string)(map[string]any,error){
-	result:=map[string]any{"group_id":groupID,"traits":[]map[string]any{},"patterns":[]map[string]any{},"beliefs":[]map[string]any{},"goals":[]map[string]any{},"summary":""}
-	selfName:="assistant";if groupID!=""{selfName="assistant_"+groupID}
-	selfEntity,err:=s.getEntityByName(ctx,selfName,groupID);if err!=nil{return nil,err}
+type SelfModelOptions struct {
+	IncludeTraits   *bool
+	IncludePatterns *bool
+	IncludeBeliefs  *bool
+}
 
-	traits:=[]map[string]any{}
-	if selfEntity!=nil{
-		raw,err:=s.Driver.Query(ctx,`
+func selfModelFlags(options []SelfModelOptions) (bool, bool, bool) {
+	traits, patterns, beliefs := true, true, true
+	if len(options) == 0 {
+		return traits, patterns, beliefs
+	}
+	o := options[0]
+	if o.IncludeTraits != nil { traits = *o.IncludeTraits }
+	if o.IncludePatterns != nil { patterns = *o.IncludePatterns }
+	if o.IncludeBeliefs != nil { beliefs = *o.IncludeBeliefs }
+	return traits, patterns, beliefs
+}
+
+func (s *Surriti) GetSelfModel(ctx context.Context, groupID string, options ...SelfModelOptions) (map[string]any, error) {
+	includeTraits, includePatterns, includeBeliefs := selfModelFlags(options)
+	result := map[string]any{
+		"group_id": groupID,
+		"traits": []map[string]any{},
+		"patterns": []map[string]any{},
+		"beliefs": []map[string]any{},
+		"goals": []map[string]any{},
+		"summary": "",
+	}
+	selfName := "assistant"
+	if groupID != "" { selfName = "assistant_" + groupID }
+	selfEntity, err := s.getEntityByName(ctx, selfName, groupID)
+	if err != nil { return nil, err }
+
+	traits := []map[string]any{}
+	if includeTraits && selfEntity != nil {
+		raw, err := s.Driver.Query(ctx, `
 SELECT * FROM relates_to
 WHERE group_id = $group_id
  AND in = type::record("entity", $src)
  AND name = "has_trait"
  AND status = "active"
- AND invalid_at IS NONE;`,map[string]any{"group_id":groupID,"src":selfEntity.UUID})
-		if err!=nil{return nil,err}
-		for _,row:=range UnwrapRows(raw){conf:=1.0;if v,ok:=toFloat(row["confidence"]);ok{conf=v};traits=append(traits,map[string]any{"fact":stringFromAny(row["fact"]),"confidence":conf})}
+ AND invalid_at IS NONE;`, map[string]any{"group_id": groupID, "src": selfEntity.UUID})
+		if err != nil { return nil, err }
+		for _, row := range UnwrapRows(raw) {
+			conf := 1.0
+			if v, ok := toFloat(row["confidence"]); ok { conf = v }
+			traits = append(traits, map[string]any{"fact": stringFromAny(row["fact"]), "confidence": conf})
+		}
 	}
-	result["traits"]=traits
+	result["traits"] = traits
 
-	rawEpisodes,err:=s.Driver.Query(ctx,`
+	patternList := []map[string]any{}
+	if includePatterns {
+		rawEpisodes, err := s.Driver.Query(ctx, `
 SELECT name, content, interaction_pattern, created_at
 FROM episode
 WHERE group_id = $group_id
  AND source CONTAINS 'self_'
 ORDER BY created_at DESC
-LIMIT 50;`,map[string]any{"group_id":groupID})
-	if err!=nil{return nil,err}
-	epRows:=UnwrapRows(rawEpisodes);patterns:=map[string]map[string]any{}
-	for _,row:=range epRows{
-		p:=stringFromAny(row["interaction_pattern"]);if p==""{continue}
-		entry:=patterns[p];if entry==nil{entry=map[string]any{"pattern":p,"count":0,"source":"episode"};patterns[p]=entry}
-		entry["count"]=intFromAny(entry["count"])+1
-	}
-	if selfEntity!=nil{
-		raw,err:=s.Driver.Query(ctx,`
+LIMIT 50;`, map[string]any{"group_id": groupID})
+		if err != nil { return nil, err }
+		epRows := UnwrapRows(rawEpisodes)
+		patterns := map[string]map[string]any{}
+		for _, row := range epRows {
+			p := stringFromAny(row["interaction_pattern"])
+			if p == "" { continue }
+			entry := patterns[p]
+			if entry == nil {
+				entry = map[string]any{"pattern": p, "count": 0, "source": "episode"}
+				patterns[p] = entry
+			}
+			entry["count"] = intFromAny(entry["count"]) + 1
+		}
+		if selfEntity != nil {
+			raw, err := s.Driver.Query(ctx, `
 SELECT * FROM relates_to
 WHERE group_id = $group_id
  AND in = type::record("entity", $src)
  AND name = "has_pattern"
  AND status = "active"
- AND invalid_at IS NONE;`,map[string]any{"group_id":groupID,"src":selfEntity.UUID})
-		if err!=nil{return nil,err}
-		for _,row:=range UnwrapRows(raw){
-			fact:=stringFromAny(row["fact"]);p:=strings.TrimSpace(strings.TrimPrefix(fact,"has_pattern:"));if p==""{p=fact};if p==""{continue}
-			conf:=1.0;if v,ok:=toFloat(row["confidence"]);ok{conf=v}
-			patterns[p]=map[string]any{"pattern":p,"count":1,"confidence":conf,"source":"self_model"}
+ AND invalid_at IS NONE;`, map[string]any{"group_id": groupID, "src": selfEntity.UUID})
+			if err != nil { return nil, err }
+			for _, row := range UnwrapRows(raw) {
+				fact := stringFromAny(row["fact"])
+				p := strings.TrimSpace(strings.TrimPrefix(fact, "has_pattern:"))
+				if p == "" { p = fact }
+				if p == "" { continue }
+				conf := 1.0
+				if v, ok := toFloat(row["confidence"]); ok { conf = v }
+				patterns[p] = map[string]any{"pattern": p, "count": 1, "confidence": conf, "source": "self_model"}
+			}
 		}
+		for _, entry := range patterns {
+			if _, ok := entry["confidence"]; !ok {
+				den := len(epRows)
+				if den < 1 { den = 1 }
+				entry["confidence"] = float64(intFromAny(entry["count"])) / float64(den)
+			}
+			patternList = append(patternList, entry)
+		}
+		sort.SliceStable(patternList, func(i, j int) bool {
+			return intFromAny(patternList[i]["count"]) > intFromAny(patternList[j]["count"])
+		})
 	}
-	patternList:=make([]map[string]any,0,len(patterns));for _,entry:=range patterns{
-		if _,ok:=entry["confidence"];!ok{den:=len(epRows);if den<1{den=1};entry["confidence"]=float64(intFromAny(entry["count"]))/float64(den)}
-		patternList=append(patternList,entry)
-	}
-	sort.SliceStable(patternList,func(i,j int)bool{return intFromAny(patternList[i]["count"])>intFromAny(patternList[j]["count"])})
-	result["patterns"]=patternList
+	result["patterns"] = patternList
 
-	beliefs:=[]map[string]any{}
-	if selfEntity!=nil{
-		raw,err:=s.Driver.Query(ctx,`
+	beliefs := []map[string]any{}
+	if includeBeliefs && selfEntity != nil {
+		raw, err := s.Driver.Query(ctx, `
 SELECT * FROM relates_to
 WHERE group_id = $group_id
  AND in = type::record("entity", $src)
  AND name = "has_belief"
  AND is_belief = true
  AND status = "active"
- AND invalid_at IS NONE;`,map[string]any{"group_id":groupID,"src":selfEntity.UUID})
-		if err!=nil{return nil,err}
-		for _,row:=range UnwrapRows(raw){beliefs=append(beliefs,map[string]any{"fact":stringFromAny(row["fact"]),"source_type":"self"})}
+ AND invalid_at IS NONE;`, map[string]any{"group_id": groupID, "src": selfEntity.UUID})
+		if err != nil { return nil, err }
+		for _, row := range UnwrapRows(raw) {
+			beliefs = append(beliefs, map[string]any{"fact": stringFromAny(row["fact"]), "source_type": "self"})
+		}
+		// Python baseline gates the currently-placeholder goals field with
+		// include_beliefs as well.
+		result["goals"] = []map[string]any{}
 	}
-	result["beliefs"]=beliefs
-	countRaw,err:=s.Driver.Query(ctx,`
+	result["beliefs"] = beliefs
+
+	countRaw, err := s.Driver.Query(ctx, `
 SELECT count() as cnt FROM episode
-WHERE group_id = $group_id AND source CONTAINS 'self_';`,map[string]any{"group_id":groupID})
-	if err!=nil{return nil,err};count:=0;rows:=UnwrapRows(countRaw);if len(rows)>0{count=intFromAny(rows[0]["cnt"])}
-	result["summary"]=fmt.Sprintf("Self-model based on %d self-episodes. %d traits identified. %d interaction patterns detected.",count,len(traits),len(patternList))
-	return result,nil
+WHERE group_id = $group_id AND source CONTAINS 'self_';`, map[string]any{"group_id": groupID})
+	if err != nil { return nil, err }
+	count := 0
+	rows := UnwrapRows(countRaw)
+	if len(rows) > 0 { count = intFromAny(rows[0]["cnt"]) }
+	result["summary"] = fmt.Sprintf(
+		"Self-model based on %d self-episodes. %d traits identified. %d interaction patterns detected.",
+		count, len(traits), len(patternList),
+	)
+	return result, nil
 }
