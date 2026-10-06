@@ -70,6 +70,7 @@ type SurritiOptions struct {
 	AliasResolutionLLM       *bool
 	ProfileRefresh           string
 	ProfileSummaryMaxFacts   int
+	Cognition                  *CognitionConfig
 }
 
 type Surriti struct {
@@ -85,6 +86,7 @@ type Surriti struct {
 	AliasResolutionLLM bool
 	ProfileRefreshMode string
 	ProfileSummaryMaxFacts int
+	CognitionConfig CognitionConfig
 }
 
 type llmFrameClassifier struct{ llm LLMClient }
@@ -141,6 +143,10 @@ func NewSurriti(driver Queryer, options *SurritiOptions) (*Surriti, error) {
 	if maxFacts == 0 {
 		maxFacts = 30
 	}
+	cognition := DefaultCognitionConfig()
+	if opts.Cognition != nil {
+		cognition = *opts.Cognition
+	}
 	frames := opts.RelationFrames
 	if frames == nil {
 		frames = NewRelationFrameRegistry(seedDefaults, llmFrameClassifier{llm: opts.LLM})
@@ -157,6 +163,7 @@ func NewSurriti(driver Queryer, options *SurritiOptions) (*Surriti, error) {
 		AliasResolutionLLM: aliasLLM,
 		ProfileRefreshMode: profileMode,
 		ProfileSummaryMaxFacts: maxFacts,
+		CognitionConfig: cognition,
 	}, nil
 }
 
