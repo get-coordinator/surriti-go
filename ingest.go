@@ -267,6 +267,13 @@ func (s *Surriti) AddEpisode(ctx context.Context,req AddEpisodeRequest)(AddEpiso
 		}
 	}
 
+	// Notify cognition after the canonical graph is durable but before
+	// ingestion_complete, exactly like Python. Restart recovery only picks up
+	// completed episodes, while a live scheduler may begin immediately.
+	if scheduler:=s.CognitionScheduler();scheduler!=nil&&scheduler.Enabled(){
+		scheduler.Notify(req.GroupID,episode.UUID)
+	}
+
 	if _,err:=s.Driver.Query(ctx,"UPDATE episode SET ingestion_complete = true WHERE uuid = $uuid;",map[string]any{"uuid":episode.UUID});err!=nil{return AddEpisodeResults{},err}
 	return AddEpisodeResults{Episode:episode,EpisodicEdges:mentionEdges,Nodes:entities,Edges:edges,InvalidatedEdges:invalidatedAll,Communities:communities,CommunityEdges:communityEdges},nil
 }
