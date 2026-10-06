@@ -59,20 +59,35 @@ func traitCandidatesForSubject(subject string,edges []EntityEdge)[]traitCandidat
 }
 
 func ratifyTraitCandidates(ctx context.Context,llm LLMClient,candidates []traitCandidate)[]map[string]any{
-	var b strings.Builder;b.WriteString("CANDIDATE TRAITS:\n")
+	parts:=make([]string,0,len(candidates))
 	for i,c:=range candidates{
+		var b strings.Builder
 		fmt.Fprintf(&b,"[%d] (%s) predicate=%q reinforcement=%d\n",i,c.Kind,c.Predicate,c.Reinforcement)
-		n:=len(c.Supporting);if n>4{n=4};for _,e:=range c.Supporting[:n]{fact:=e.Fact;if fact==""{fact=e.Name};b.WriteString("  - "+fact+"\n")}
+		n:=len(c.Supporting);if n>4{n=4}
+		for _,e:=range c.Supporting[:n]{fact:=e.Fact;if fact==""{fact=e.Name};b.WriteString("  - "+fact+"\n")}
+		parts=append(parts,strings.TrimSuffix(b.String(),"\n"))
 	}
+	rendered:="CANDIDATE TRAITS:\n"+strings.Join(parts,"\n\n")
 	if synth,ok:=llm.(Synthesizer);ok{
-		if raw,err:=synth.Synthesize(ctx,"Return a JSON array of durable traits with name, description, confidence, supporting_indices.",b.String());err==nil{
+		if raw,err:=synth.Synthesize(ctx,TraitRatifySystem,rendered);err==nil{
 			if parsed,ok:=ParseJSONLoose(raw).([]any);ok&&len(parsed)>0{
 				out:=[]map[string]any{}
 				for _,item:=range parsed{
 					m:=mapFromAny(item);if m==nil{continue};name:=SnakeCase(stringFromAny(m["name"]));if name=="unknown"{continue}
-					conf:=.6;if v,ok:=toFloat(m["confidence"]);ok{conf=v};if conf<0{conf=0};if conf>1{conf=1}
+					conf:=llmFloat(m["confidence"],.6);if conf<0{conf=0};if conf>1{conf=1}
 					support:=[]EntityEdge{}
-					for _,idxRaw:=range asAnySlice(m["supporting_indices"]){idx:=-1;switch x:=idxRaw.(type){case string:idx,_=strconv.Atoi(x);default:idx=intFromAny(x)};if idx>=0&&idx<len(candidates){support=append(support,candidates[idx].Supporting...)}}
+					for _,idxRaw:=range asAnySlice(m["supporting_indices"]){
+						idx:=-1
+						switch x:=idxRaw.(type){
+						case string:
+							if strings.TrimSpace(x)!=""{if n,err:=strconv.Atoi(x);err==nil&&strconv.Itoa(n)==strings.TrimSpace(x){idx=n}}
+						case int:
+							idx=x
+						case float64:
+							if float64(int(x))==x{idx=int(x)}
+						}
+						if idx>=0&&idx<len(candidates){support=append(support,candidates[idx].Supporting...)}
+					}
 					if len(support)==0&&len(candidates)>0{support=candidates[0].Supporting}
 					out=append(out,map[string]any{"name":name,"description":stringFromAny(m["description"]),"confidence":conf,"supporting":support})
 				}
@@ -139,12 +154,12 @@ func SynthesizeGoals(ctx context.Context,driver Queryer,llm LLMClient,embedder E
 	existingRaw,err:=driver.Query(ctx,`SELECT name FROM entity WHERE group_id = $g AND 'goal' IN labels;`,map[string]any{"g":groupID});if err!=nil{return 0,err};existing:=[]string{};for _,r:=range UnwrapRows(existingRaw){existing=append(existing,stringFromAny(r["name"]))}
 	accepted:=[]map[string]any{}
 	if synth,ok:=llm.(Synthesizer);ok{
-		var b strings.Builder;b.WriteString("GOAL CANDIDATES:\n");for i,s:=range sentences{fmt.Fprintf(&b,"[%d] %s\n",i,s)};if len(existing)>0{b.WriteString("\nEXISTING_GOALS: "+strings.Join(existing,", "))}
-		if response,e:=synth.Synthesize(ctx,"Return JSON array of durable goals with name, description, domain, time_horizon, confidence.",b.String());e==nil{
-			if parsed,ok:=ParseJSONLoose(response).([]any);ok{for _,item:=range parsed{m:=mapFromAny(item);name:=SnakeCase(stringFromAny(m["name"]));if !cleanGoalName(name){continue};conf:=.6;if v,ok:=toFloat(m["confidence"]);ok{conf=v};if conf<0{conf=0};if conf>1{conf=1};accepted=append(accepted,map[string]any{"name":name,"description":stringFromAny(m["description"]),"domain":stringFromAny(m["domain"]),"time_horizon":stringFromAny(m["time_horizon"]),"confidence":conf})}}
+		var b strings.Builder;b.WriteString("GOAL CANDIDATES (one per line, indexed):\n");for i,s:=range sentences{fmt.Fprintf(&b,"[%d] %s\n",i,s)};if len(existing)>0{b.WriteString("\nEXISTING_GOALS: "+strings.Join(existing,", "))}
+		if response,e:=synth.Synthesize(ctx,GoalRatifySystem,strings.TrimSuffix(b.String(),"\n"));e==nil{
+			if parsed,ok:=ParseJSONLoose(response).([]any);ok{for _,item:=range parsed{m:=mapFromAny(item);name:=SnakeCase(stringFromAny(m["name"]));if !cleanGoalName(name){continue};conf:=llmFloat(m["confidence"],.6);if conf<0{conf=0};if conf>1{conf=1};accepted=append(accepted,map[string]any{"name":name,"description":stringFromAny(m["description"]),"domain":stringFromAny(m["domain"]),"time_horizon":stringFromAny(m["time_horizon"]),"confidence":conf})}}
 		}
 	}
-	if len(accepted)==0{name:=SnakeCase(sentences[0]);if !cleanGoalName(name){return 0,nil};accepted=[]map[string]any{{"name":name,"description":sentences[0],"domain":"","time_horizon":"unknown","confidence":.55}}}
+	if len(accepted)==0{first:=sentences[0];short:=first;if len(short)>48{short=short[:48]};name:=SnakeCase(short);if !cleanGoalName(name){return 0,nil};accepted=[]map[string]any{{"name":name,"description":first,"domain":"","time_horizon":"unknown","confidence":.55}}}
 	subject,err:=resolveGoalSpeaker(ctx,driver,groupID,episodeUUIDs);if err!=nil{return 0,err};if subject==""{return 0,nil}
 	now:=utcNow();written:=0
 	for _,goal:=range accepted{
