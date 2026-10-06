@@ -556,3 +556,7 @@ func rankedIDs(rankings [][]string) []string {
 	}
 	return ids
 }
+
+func (s *Surriti) Search(ctx context.Context, query, groupID string, config *SearchConfig) (SearchResults, error) {
+	return s.SearchCompat(ctx, SearchCompatRequest{Query: query, GroupID: &groupID, Config: config})
+}

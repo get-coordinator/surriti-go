@@ -65,7 +65,7 @@ The Python package contains the runtime modules inventoried below, plus Python-o
 |---|---|---|
 | `__init__.py` | `surriti.go`, `options.go`, public types/interfaces | Preserve the public capability surface and version metadata. |
 | `graphiti.py` | `surriti.go`, `ingest.go`, `graph_write.go`, `graph_api.go`, `graph_state.go`, `participant_memory.go`, `recall.go`, `communities.go`, `diagnostics.go`, `self_awareness.go`, `facade_compat.go` | Main facade/orchestration. Do not port as one giant file; preserve every observable method and invariant. |
-| `driver.py` | `driver.go` | Connection lifecycle, env config, context cancellation, stale-connection recovery, transaction-conflict retry, concurrency-safe reconnect, schema init and clear. |
+| `driver.py` | `driver.go`, `internal/surrealtransport` | Connection lifecycle, env config, context cancellation, stale-connection recovery, transaction-conflict retry, concurrency-safe reconnect, schema init and clear. |
 | `errors.py` | `errors.go` | Stable typed/sentinel error categories with wrapping. |
 | `_logging.py` | `logging.go` | Opt-in logging surface; no duplicate default handlers. |
 
@@ -99,8 +99,8 @@ Managed SurrealDB tables:
 | Python | Go target | Required behavior |
 |---|---|---|
 | `llm.py` | `llm.go` | Provider-neutral LLM interface plus extracted entity/fact/contradiction structures and scripted/dummy test implementations. |
-| `llm_clients.py` | `llm_clients.go`, `llm_prompts.go`, `provider_http.go` | Preserve prompt/output parsing semantics where adapters are supplied. Core library must not depend on a specific routing provider. |
-| `embedder.py` | `embedder.go` | Provider-neutral embedder interface, deterministic dummy embedder, batch behavior and cosine similarity. |
+| `llm_clients.py` | `llm_clients.go`, `llm_parse.go`, `llm_prompts.go`, `provider_*.go`, `internal/providerhttp` | Preserve prompt/output parsing semantics where adapters are supplied. Core library must not depend on a specific routing provider. |
+| `embedder.py` | `embedder.go`, `provider_openai_embedding.go` | Provider-neutral embedder interface, deterministic dummy embedder, batch behavior and cosine similarity. |
 | `rerankers.py` | `rerank.go` | Cross-encoder interface, dummy ranker, RRF, MMR, episode-mentions reranking. |
 
 ### Entity identity and profiles

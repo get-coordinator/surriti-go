@@ -8,6 +8,42 @@ import (
 	"time"
 )
 
+type AddEpisodeResults struct {
+	Episode          EpisodicNode
+	EpisodicEdges    []EpisodicEdge
+	Nodes            []EntityNode
+	Edges            []EntityEdge
+	InvalidatedEdges []EntityEdge
+	Communities      []CommunityNode
+	CommunityEdges   []CommunityEdge
+}
+
+type AddBulkEpisodeResults struct {
+	Episodes         []EpisodicNode
+	EpisodicEdges    []EpisodicEdge
+	Nodes            []EntityNode
+	Edges            []EntityEdge
+	InvalidatedEdges []EntityEdge
+	Communities      []CommunityNode
+	CommunityEdges   []CommunityEdge
+}
+
+type AddTripletResults struct {
+	Nodes            []EntityNode
+	Edges            []EntityEdge
+	InvalidatedEdges []EntityEdge
+}
+
+type RawEpisode struct {
+	Name              string
+	Content           string
+	Source            EpisodeType
+	SourceDescription string
+	ReferenceTime     *time.Time
+	GroupID           *string
+	UUID              *string
+}
+
 type EntityTypePair struct {
 	Source string
 	Target string

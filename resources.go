@@ -134,3 +134,15 @@ func (s *ResourceStore) List(ctx context.Context, groupID string, limit int) ([]
 	}
 	return out, nil
 }
+
+func (s *Surriti) UpsertResource(ctx context.Context, resource Resource, groupID string) (Resource, error) {
+	return s.Resources.Upsert(ctx, resource, groupID)
+}
+
+func (s *Surriti) ListResources(ctx context.Context, groupID string, limit int) ([]Resource, error) {
+	return s.Resources.List(ctx, groupID, limit)
+}
+
+func (s *Surriti) SetResourceAvailability(ctx context.Context, libraryItemID, groupID string, available bool) (bool, error) {
+	return s.Resources.SetAvailability(ctx, libraryItemID, groupID, available)
+}

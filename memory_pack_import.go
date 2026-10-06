@@ -464,3 +464,10 @@ func ImportGroupFromZip(ctx context.Context, driver Queryer, inputPath, targetGr
 	}
 	return ImportGroupFromDir(ctx, driver, tmp, targetGroupID, mode)
 }
+
+func (s *Surriti) ImportMemoryPack(ctx context.Context, inputPath, targetGroupID, mode string) (ImportResult, error) {
+	if mode == "" {
+		mode = "merge"
+	}
+	return ImportGroupFromZip(ctx, s.Driver, inputPath, targetGroupID, mode)
+}

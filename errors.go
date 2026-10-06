@@ -1,11 +1,15 @@
 package surriti
 
-import "errors"
+import (
+	"errors"
+
+	"github.com/get-coordinator/surriti-go/internal/providerhttp"
+)
 
 var (
-	ErrConfig     = errors.New("surriti: configuration error")
+	ErrConfig     = providerhttp.ErrConfig
 	ErrConnection = errors.New("surriti: connection error")
 	ErrSchema     = errors.New("surriti: schema error")
-	ErrLLM        = errors.New("surriti: llm error")
+	ErrLLM        = providerhttp.ErrLLM
 	ErrNotFound   = errors.New("surriti: not found")
 )

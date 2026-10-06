@@ -1,10 +1,74 @@
 # surriti-go
 
-Go port of [the-hack-foundation/surriti](https://github.com/the-hack-foundation/surriti).
+A Go library for temporal knowledge graphs and participant-scoped memory backed by SurrealDB 3.x. Includes episode/triplet ingestion, search and recall, historical reads, cognition, resources, communities, and portable memory packs.
+
+## Install
+
+Requires Go 1.23 or newer and a running SurrealDB 3.x instance.
+
+```sh
+go get github.com/get-coordinator/surriti-go
+```
+
+The import path is `github.com/get-coordinator/surriti-go`; the package name is `surriti`.
+
+## Use from your application
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    surriti "github.com/get-coordinator/surriti-go"
+)
+
+func main() {
+    // Reads SURRITI_SURREAL_URL, SURRITI_SURREAL_NS, SURRITI_SURREAL_DB,
+    // SURRITI_SURREAL_USER, and SURRITI_SURREAL_PASS.
+    memory, err := surriti.NewSurritiFromEnv(nil)
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer func() {
+        ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+        defer cancel()
+        if err := memory.Close(ctx); err != nil {
+            log.Print(err)
+        }
+    }()
+
+    ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+    defer cancel()
+    if _, err := memory.Connect(ctx); err != nil {
+        log.Print(err)
+        return
+    }
+    result, err := memory.AddTriplet(ctx, surriti.AddTripletRequest{
+        SubjectName: "Alice", Predicate: "lives_in",
+        ObjectName: "Philadelphia", GroupID: "my-app",
+    })
+    if err != nil {
+        log.Print(err)
+        return
+    }
+    log.Printf("stored %d facts", len(result.Edges))
+}
+```
+
+Nil options use deterministic dummy LLM and embedding implementations. For semantic extraction, inject your providers through `SurritiOptions{LLM: llm, Embedder: embedder}`. Built-in adapters are available through `NewOpenAILLMClient`, `NewAnthropicLLMClient`, and `NewOpenAIEmbedder`; custom implementations satisfy the same small interfaces. Configure the driver and embedder with matching dimensions (driver default: 768; OpenAI embedder default: 1536).
+
+For explicit configuration, start with `DefaultDriverConfig()`, construct a driver with `NewDefaultSurrealDriver(cfg)`, then call `NewSurriti(driver, options)`. Construction does not connect. `Connect` initializes the schema and starts background work; `Close` drains that work and closes the driver. Injected providers remain application-owned. Configure instances before using them concurrently, and honor cancellation in custom providers.
+
+Use a consistent `GroupID` to isolate application memory. Inspect error categories with `errors.Is(err, surriti.ErrConnection)` and the other exported sentinels. Logging is silent by default; call `SetupLogging` to opt in.
+
+See [compiled examples](example_test.go) and `go doc github.com/get-coordinator/surriti-go` for the public API.
 
 ## Port contract
 
-This repository is a behavior-preserving port, not a redesign.
+The library preserves the behavior of [the-hack-foundation/surriti](https://github.com/the-hack-foundation/surriti), while organizing implementation details for Go consumers.
 
 Reference implementation:
 
@@ -25,20 +89,21 @@ The suite includes live SurrealDB 3.0.5 tests and a Python/Go interoperability w
 
 ## Architecture
 
-The SDK uses one `surriti` package. Cohesive files keep ownership visible without adding interfaces or circular package dependencies:
+The public API lives in the root `surriti` package, so applications use one import. Internal packages isolate transport implementation details without exposing additional APIs or introducing dependencies back into the graph layer:
 
-- `surriti.go`, `options.go`: construction, connection and background-work ownership.
-- `ingest.go`, `graph_write.go`, `graph_api.go`, `graph_state.go`: ingestion, persistence, current and historical reads.
-- `participant_memory.go`: reference writes, authorization, participant recall, grants and revocation.
-- `relation_frames.go`, `temporal.go`: deterministic identity and temporal lineage.
-- `driver.go`, `driver_surrealdb.go`, `schema.go`: reconnect policy, SDK wire normalization, exact schema and backfills.
-- `search*.go`, `recall.go`, `memory_retrieval.go`, `rerank.go`: retrieval and relevance admission.
-- `cognition_*.go`: scheduler, ordered fail-soft passes, and prompt contracts.
-- `llm_clients.go`, `llm_prompts.go`, `embedder.go`, `provider_http.go`: provider adapters and shared HTTP policy.
-- `profiles.go`, `resources.go`, `communities.go`, `read_models.go`, `diagnostics.go`, `memory_pack*.go`: supporting memory capabilities.
+- `surriti.go`, `options.go`: construction and lifecycle ownership.
+- `ingest.go`, `graph_*.go`, `participant_memory.go`: writes, temporal reads, and participant authorization.
+- `driver.go`, `schema.go`: connection/retry policy, schema and backfills.
+- `internal/surrealtransport`: official SurrealDB SDK adapter and wire normalization.
+- `internal/providerhttp`: shared provider HTTP retry, cancellation, and bounded response policy.
+- `llm.go`, `embedder.go`, `rerank.go`: injectable capabilities and deterministic implementations.
+- `provider_openai.go`, `provider_anthropic.go`, `provider_openai_embedding.go`: vendor protocols and configuration.
+- `llm_clients.go`, `llm_parse.go`, `llm_prompts.go`: shared model operations, parsing and prompt contracts.
+- `search*.go`, `recall.go`, `memory_retrieval.go`: retrieval and relevance admission.
+- `cognition_*.go`: scheduler and ordered cognition passes.
+- `profiles.go`, `resources.go`, `communities.go`, `read_models.go`, `diagnostics.go`, `memory_pack*.go`: supporting capabilities and their facade methods.
 
-Configure providers and options before sharing a `Surriti` instance. Provider implementations and injected `Queryer` implementations must support concurrent calls and context cancellation. `Close` drains/cancels owned work before closing the driver; a provider that ignores cancellation can prevent shutdown from finishing. Applications own injected provider clients and may share them across instances.
-
+Graph and cognition code share the same models and lifecycle; they remain together rather than requiring public forwarding layers. Existing exported names, signatures, and compatibility aliases remain available.
 Use constructors for models and `DefaultSearchConfig()` / `DefaultCognitionConfig()` when customizing settings: Go zero values do not encode Python keyword defaults. Basic `Search` returns fact results; use `SearchAdvanced` for combined node, episode and community retrieval. `SearchCompat` retains Graphiti argument mapping.
 
 ## Checks
@@ -64,7 +129,7 @@ OpenAI-compatible and Anthropic adapters accept an injected `HTTPClient` for tra
 4. Deterministic and differential testing.
 5. Performance only after the first four are satisfied.
 
-No architectural upgrades, new memory semantics, OpenRouter coupling, Coordinator coupling, JEPA/JEV behavior, or speculative refactors belong in the parity phase.
+Library refactors must preserve the public API, schema, memory semantics, prompt contracts, and interoperability. Keep application-specific routing and behavior in the consuming application.
 
 ## Provider boundaries
 

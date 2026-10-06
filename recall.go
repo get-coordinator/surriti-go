@@ -8,6 +8,19 @@ import (
 	"time"
 )
 
+type MemoryContext struct {
+	Query            string
+	Profiles         []EntityNode
+	Facts            []EntityEdge
+	Episodes         []EpisodicNode
+	Communities      []CommunityNode
+	ResolvedEntities []map[string]any
+	Traits           []EntityNode
+	Goals            []EntityNode
+	Prediction       map[string]any
+	SelfModel        map[string]any
+}
+
 type RecallOptions struct {
 	GroupID         string
 	Depth           string

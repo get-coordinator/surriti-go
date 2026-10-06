@@ -542,3 +542,13 @@ func packFileName(name string) bool {
 	}
 	return false
 }
+
+func (s *Surriti) ExportMemoryPack(ctx context.Context, groupID, outputPath string, includeEmbeddings string, pageSize int) (ExportResult, error) {
+	if includeEmbeddings == "" {
+		includeEmbeddings = "never"
+	}
+	if pageSize == 0 {
+		pageSize = 1000
+	}
+	return ExportGroupToZip(ctx, s.Driver, groupID, outputPath, includeEmbeddings, pageSize, nil)
+}

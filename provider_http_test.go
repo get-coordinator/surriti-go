@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/get-coordinator/surriti-go/internal/providerhttp"
 )
 
 func TestProviderRetriesTransientResponses(t *testing.T) {
@@ -43,7 +45,7 @@ func TestProviderCancellationDuringRetry(t *testing.T) {
 		cancel()
 	}))
 	defer server.Close()
-	_, err := providerPOST(ctx, server.Client(), server.URL, nil, map[string]any{}, 2, 1024)
+	_, err := providerhttp.Post(ctx, server.Client(), server.URL, nil, map[string]any{}, 2, 1024)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("err=%v", err)
 	}
@@ -58,10 +60,10 @@ func TestProviderRejectsOversizedResponsesAndInvalidRequests(t *testing.T) {
 	defer server.Close()
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if _, err := providerPOST(ctx, server.Client(), server.URL, nil, nil, 2, 4); !errors.Is(err, ErrLLM) {
+	if _, err := providerhttp.Post(ctx, server.Client(), server.URL, nil, nil, 2, 4); !errors.Is(err, ErrLLM) {
 		t.Fatalf("err=%v", err)
 	}
-	if _, err := providerPOST(ctx, server.Client(), server.URL, nil, make(chan int), 2, 1024); !errors.Is(err, ErrLLM) {
+	if _, err := providerhttp.Post(ctx, server.Client(), server.URL, nil, make(chan int), 2, 1024); !errors.Is(err, ErrLLM) {
 		t.Fatalf("err=%v", err)
 	}
 	if calls.Load() != 1 {

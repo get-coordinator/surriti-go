@@ -1,5 +1,8 @@
 package surriti
 
+// SurritiOptions configures providers and memory processing at construction.
+// Nil pointer fields retain defaults; non-nil pointers allow explicit false values.
+// Start cognition customizations with DefaultCognitionConfig.
 type SurritiOptions struct {
 	LLM                      LLMClient
 	Embedder                 Embedder

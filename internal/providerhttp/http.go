@@ -1,9 +1,11 @@
-package surriti
+// Package providerhttp implements the shared HTTP policy for model providers.
+package providerhttp
 
 import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -14,10 +16,16 @@ import (
 	"time"
 )
 
+var (
+	ErrConfig = errors.New("surriti: configuration error")
+	ErrLLM    = errors.New("surriti: llm error")
+)
+
+// Post sends JSON with bounded response reads and context-aware retries.
 // The Python provider SDKs retry transient transport errors and 408/409/429/5xx
 // responses twice. Keep that policy at the adapter boundary, never around graph
 // ingest, where replay could duplicate writes.
-func providerPOST(ctx context.Context, client *http.Client, url string, headers map[string]string, payload any, retries int, maxBytes int64) ([]byte, error) {
+func Post(ctx context.Context, client *http.Client, url string, headers map[string]string, payload any, retries int, maxBytes int64) ([]byte, error) {
 	if retries < 0 {
 		return nil, fmt.Errorf("%w: max retries must be non-negative", ErrConfig)
 	}

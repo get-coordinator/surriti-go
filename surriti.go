@@ -9,55 +9,8 @@ import (
 
 const Version = "0.5.0"
 
-type AddEpisodeResults struct {
-	Episode          EpisodicNode
-	EpisodicEdges    []EpisodicEdge
-	Nodes            []EntityNode
-	Edges            []EntityEdge
-	InvalidatedEdges []EntityEdge
-	Communities      []CommunityNode
-	CommunityEdges   []CommunityEdge
-}
-
-type AddBulkEpisodeResults struct {
-	Episodes         []EpisodicNode
-	EpisodicEdges    []EpisodicEdge
-	Nodes            []EntityNode
-	Edges            []EntityEdge
-	InvalidatedEdges []EntityEdge
-	Communities      []CommunityNode
-	CommunityEdges   []CommunityEdge
-}
-
-type AddTripletResults struct {
-	Nodes            []EntityNode
-	Edges            []EntityEdge
-	InvalidatedEdges []EntityEdge
-}
-
-type RawEpisode struct {
-	Name              string
-	Content           string
-	Source            EpisodeType
-	SourceDescription string
-	ReferenceTime     *time.Time
-	GroupID           *string
-	UUID              *string
-}
-
-type MemoryContext struct {
-	Query            string
-	Profiles         []EntityNode
-	Facts            []EntityEdge
-	Episodes         []EpisodicNode
-	Communities      []CommunityNode
-	ResolvedEntities []map[string]any
-	Traits           []EntityNode
-	Goals            []EntityNode
-	Prediction       map[string]any
-	SelfModel        map[string]any
-}
-
+// Surriti coordinates graph memory, providers, and background work. Construct it
+// with NewSurriti and configure its exported fields before concurrent use.
 type Surriti struct {
 	Driver         Queryer
 	LLM            LLMClient
@@ -91,6 +44,9 @@ func (a llmFrameClassifier) ClassifyRelationFrame(ctx context.Context, req Frame
 	return nil, nil
 }
 
+// NewSurriti constructs a memory client without connecting. Nil options select
+// default settings and deterministic dummy providers. Close closes the supplied
+// driver, but does not close injected provider clients.
 func NewSurriti(driver Queryer, options *SurritiOptions) (*Surriti, error) {
 	if driver == nil {
 		return nil, fmt.Errorf("%w: nil driver", ErrConfig)
@@ -166,6 +122,7 @@ func NewSurriti(driver Queryer, options *SurritiOptions) (*Surriti, error) {
 	}, nil
 }
 
+// NewSurritiFromEnv constructs a client using SURRITI_SURREAL_* configuration.
 func NewSurritiFromEnv(options *SurritiOptions) (*Surriti, error) {
 	driver, err := NewSurrealDriverFromEnv()
 	if err != nil {
@@ -174,6 +131,7 @@ func NewSurritiFromEnv(options *SurritiOptions) (*Surriti, error) {
 	return NewSurriti(driver, options)
 }
 
+// Connect connects the driver, initializes the schema, and starts cognition.
 func (s *Surriti) Connect(ctx context.Context) (*Surriti, error) {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
@@ -206,6 +164,8 @@ func (s *Surriti) Connect(ctx context.Context) (*Surriti, error) {
 	return s, nil
 }
 
+// Close drains background work before closing the driver. Injected providers
+// must honor cancellation so background work can finish.
 func (s *Surriti) Close(ctx context.Context) error {
 	s.lifecycle.Lock()
 	defer s.lifecycle.Unlock()
@@ -265,39 +225,6 @@ func (s *Surriti) BuildIndicesAndConstraints(ctx context.Context) error {
 		return schema.InitSchema(ctx)
 	}
 	return nil
-}
-
-func (s *Surriti) UpsertResource(ctx context.Context, resource Resource, groupID string) (Resource, error) {
-	return s.Resources.Upsert(ctx, resource, groupID)
-}
-
-func (s *Surriti) ListResources(ctx context.Context, groupID string, limit int) ([]Resource, error) {
-	return s.Resources.List(ctx, groupID, limit)
-}
-
-func (s *Surriti) SetResourceAvailability(ctx context.Context, libraryItemID, groupID string, available bool) (bool, error) {
-	return s.Resources.SetAvailability(ctx, libraryItemID, groupID, available)
-}
-
-func (s *Surriti) Search(ctx context.Context, query, groupID string, config *SearchConfig) (SearchResults, error) {
-	return s.SearchCompat(ctx, SearchCompatRequest{Query: query, GroupID: &groupID, Config: config})
-}
-
-func (s *Surriti) ExportMemoryPack(ctx context.Context, groupID, outputPath string, includeEmbeddings string, pageSize int) (ExportResult, error) {
-	if includeEmbeddings == "" {
-		includeEmbeddings = "never"
-	}
-	if pageSize == 0 {
-		pageSize = 1000
-	}
-	return ExportGroupToZip(ctx, s.Driver, groupID, outputPath, includeEmbeddings, pageSize, nil)
-}
-
-func (s *Surriti) ImportMemoryPack(ctx context.Context, inputPath, targetGroupID, mode string) (ImportResult, error) {
-	if mode == "" {
-		mode = "merge"
-	}
-	return ImportGroupFromZip(ctx, s.Driver, inputPath, targetGroupID, mode)
 }
 
 func (s *Surriti) CognitionScheduler() *CognitionScheduler {
