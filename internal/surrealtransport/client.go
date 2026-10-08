@@ -14,11 +14,19 @@ import (
 	surrealdb "github.com/surrealdb/surrealdb.go"
 	"github.com/surrealdb/surrealdb.go/pkg/connection"
 	"github.com/surrealdb/surrealdb.go/pkg/connection/gorillaws"
+	"github.com/surrealdb/surrealdb.go/pkg/constants"
 	"github.com/surrealdb/surrealdb.go/pkg/models"
 )
 
-// Open connects to an endpoint without authenticating or selecting a database.
+// Open connects to an endpoint without authenticating or selecting a database,
+// with the SDK's default per-request timeout.
 func Open(ctx context.Context, endpoint string) (*Client, error) {
+	return OpenTimeout(ctx, endpoint, constants.DefaultWSTimeout)
+}
+
+// OpenTimeout is Open with a per-request timeout; zero leaves each request
+// bounded only by its context.
+func OpenTimeout(ctx context.Context, endpoint string, timeout time.Duration) (*Client, error) {
 	u, err := url.ParseRequestURI(endpoint)
 	if err != nil {
 		return nil, err
@@ -32,6 +40,7 @@ func Open(ctx context.Context, endpoint string) (*Client, error) {
 			return nil, err
 		}
 		ws := gorillaws.New(cfg)
+		ws.Timeout = timeout
 		var socket *websocket.Conn
 		client.lastPong.Store(time.Now().UnixNano())
 		// SDK v1.7 waits for an explicit Close after a peer close. Notify

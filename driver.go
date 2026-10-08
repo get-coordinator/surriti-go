@@ -62,6 +62,9 @@ type DriverConfig struct {
 	Password         string
 	EmbeddingDim     int
 	MaxQueryAttempts int
+	// QueryTimeout bounds each request on the connection; zero leaves it to the
+	// caller's context (a long schema backfill on a big graph needs that).
+	QueryTimeout time.Duration
 }
 
 func DefaultDriverConfig() DriverConfig {
@@ -71,6 +74,7 @@ func DefaultDriverConfig() DriverConfig {
 		Database:         "surriti",
 		EmbeddingDim:     768,
 		MaxQueryAttempts: 3,
+		QueryTimeout:     30 * time.Second,
 	}
 }
 
