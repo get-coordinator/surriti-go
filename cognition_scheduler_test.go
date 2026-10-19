@@ -45,8 +45,34 @@ func TestCognitionFailedBatchReturnsToDebounce(t *testing.T) {
 	pending := append([]string(nil), state.PendingEpisodeUUIDs...)
 	passes := state.PassCount
 	scheduler.mu.Unlock()
-	if delay != 8*time.Second || len(pending) != 1 || pending[0] != "episode" || passes != 1 {
+	if delay != 16*time.Second || len(pending) != 1 || pending[0] != "episode" || passes != 1 {
 		t.Fatalf("delay=%v pending=%v passes=%d", delay, pending, passes)
 	}
 	scheduler.Shutdown(context.Background())
+}
+
+func TestCognitionFailingBatchBacksOffThenDrops(t *testing.T) {
+	driver := queryFunc(func(context.Context, string, map[string]any) (any, error) { return nil, errors.New("offline") })
+	scheduler := NewCognitionScheduler(driver, DummyLLMClient{}, NewDummyEmbedder(8), DefaultCognitionConfig())
+	defer scheduler.Shutdown(context.Background())
+	batch := []string{"a", "b", "c", "d", "e", "f"}
+	state := func() (time.Duration, int) {
+		scheduler.mu.Lock()
+		defer scheduler.mu.Unlock()
+		st := scheduler.states["g"]
+		return scheduler.delayLocked(st), len(st.PendingEpisodeUUIDs)
+	}
+	scheduler.RunOnce(context.Background(), "g", batch)
+	for i, want := range []time.Duration{16 * time.Second, 32 * time.Second, 64 * time.Second} {
+		if i > 0 {
+			scheduler.RunOnce(context.Background(), "g", nil)
+		}
+		if delay, pending := state(); delay != want || pending != len(batch) {
+			t.Fatalf("failure %d: delay=%v pending=%d", i+1, delay, pending)
+		}
+	}
+	scheduler.RunOnce(context.Background(), "g", nil)
+	if delay, pending := state(); pending != 0 || delay != 8*time.Second {
+		t.Fatalf("after drop: delay=%v pending=%d", delay, pending)
+	}
 }

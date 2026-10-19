@@ -114,7 +114,9 @@ func RunCognitionPass(ctx context.Context, driver Queryer, llm LLMClient, embedd
 			m.Values["domains_labelled"] = v
 		}
 	}
-	if config.Prediction {
+	// Prediction only follows a pass that processed new episodes; a retry or
+	// an empty pass would just ask the same question again.
+	if config.Prediction && len(episodeUUIDs) > 0 && len(m.FailedSteps) == 0 {
 		v, err := SynthesizePrediction(ctx, driver, llm, groupID)
 		if err != nil {
 			fail("prediction", err)
