@@ -11,6 +11,7 @@ type CognitionGroupState struct {
 	PendingEpisodeUUIDs []string
 	LastNotifyAt        time.Time
 	PassCount           int
+	FailedPasses        int
 }
 
 func (s *CognitionGroupState) MarkDirty(episodeUUID string) {
@@ -43,6 +44,13 @@ func (s *CognitionGroupState) Retry(episodeUUIDs []string) {
 	}
 	s.PendingEpisodeUUIDs = out
 }
+
+// A batch that keeps failing backs off from IdleSeconds, doubling per failed
+// pass up to maxRetryDelay, and is dropped after MaxFailedPasses.
+const (
+	defaultMaxFailedPasses = 4
+	maxRetryDelay          = 15 * time.Minute
+)
 
 type CognitionScheduler struct {
 	driver   Queryer
@@ -132,10 +140,22 @@ func (s *CognitionScheduler) Notify(groupID, episodeUUID string) {
 }
 
 func (s *CognitionScheduler) delayLocked(st *CognitionGroupState) time.Duration {
+	idle := time.Duration(s.config.IdleSeconds * float64(time.Second))
+	if st.FailedPasses > 0 {
+		d := max(idle, time.Second) << min(st.FailedPasses, 16)
+		return min(d, maxRetryDelay)
+	}
 	if len(st.PendingEpisodeUUIDs) >= s.config.BatchThreshold {
 		return 0
 	}
-	return time.Duration(s.config.IdleSeconds * float64(time.Second))
+	return idle
+}
+
+func (s *CognitionScheduler) maxFailedPasses() int {
+	if s.config.MaxFailedPasses > 0 {
+		return s.config.MaxFailedPasses
+	}
+	return defaultMaxFailedPasses
 }
 
 func (s *CognitionScheduler) scheduleLocked(groupID string, delay time.Duration) {
@@ -199,11 +219,19 @@ func (s *CognitionScheduler) runGroup(ctx context.Context, groupID string) Cogni
 	passCount := st.PassCount
 	s.mu.Unlock()
 	metrics := RunCognitionPass(ctx, s.driver, s.llm, s.embedder, groupID, batch, s.config, passCount)
-	if len(metrics.FailedSteps) > 0 {
-		s.mu.Lock()
-		st.Retry(batch)
-		s.mu.Unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(metrics.FailedSteps) == 0 {
+		st.FailedPasses = 0
+		return metrics
 	}
+	st.FailedPasses++
+	if st.FailedPasses >= s.maxFailedPasses() {
+		packageLogf(LogError, "cognition group=%s dropped %d episodes after %d failed passes: %v", groupID, len(batch), st.FailedPasses, metrics.FailedSteps)
+		st.FailedPasses = 0
+		return metrics
+	}
+	st.Retry(batch)
 	return metrics
 }
 

@@ -25,6 +25,7 @@ type CognitionConfig struct {
 	SelfAwareness              bool
 	MaxEpisodesPerPass         int
 	MaxConcurrentGroups        int
+	MaxFailedPasses            int
 	DecayHalfLifeDays          map[string]float64
 }
 
@@ -36,6 +37,6 @@ func DefaultCognitionConfig() CognitionConfig {
 		AffectExtraction: true, BeliefExtraction: true, TraitSynthesis: true, GoalSynthesis: true,
 		ProceduralSynthesis: true, Consolidation: true, StagnantConsolidation: true,
 		StagnantMinEdgesPerSummary: 5, StagnantMaxEdgesPerPass: 120,
-		Prediction: true, SelfAwareness: true, MaxEpisodesPerPass: 32, MaxConcurrentGroups: 4,
+		Prediction: true, SelfAwareness: true, MaxEpisodesPerPass: 32, MaxConcurrentGroups: 4, MaxFailedPasses: 4,
 	}
 }
